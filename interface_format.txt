@@ -1,0 +1,9 @@
+info -> get_info
+map -> get_map
+snapshot -> get_snapshots
+header -> get_header
+tables -> get_tables
+data -> get_data
+check -> get_check
+do -> 
+    mount -> mount
