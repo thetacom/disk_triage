@@ -1,2 +1,5 @@
 
 *.pyc
+*.qcow
+*.qcow2
+*.qcow3

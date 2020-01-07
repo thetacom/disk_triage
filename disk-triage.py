@@ -2,31 +2,46 @@
 import os, sys, argparse, math, binascii
 from collections import OrderedDict
 from colorama import Fore, Back, Style
-import QCOW, screen
+import QCOW
 # Output functions
 
-VERSION = "0.0.5"
+VERSION = "0.0.7"
+def check_format(args):
+    if args.format in {'plain','json'}:
+        pass
+    elif args.format in {'xml'}:
+        print("Not Yet Implemented")
+        exit()
+    else:
+        print("Unsupported Output Format")
 
 def get_info(img, args):
+    check_format(args)
     img.get_info(args)
 
 def get_map(img, args):
+    check_format(args)
     img.get_map(args)
 
 def get_snapshots(img, args):
+    check_format(args)
     img.get_snapshots(args)
 
 
 def get_header(img, args):
+    check_format(args)
     img.get_header(args)
 
 def get_tables(img, args):
+    check_format(args)
     img.get_tables(args)
 
 def get_data(img, args):
+    check_format(args)
     img.get_data(args)
 
 def get_check(img, args):
+    check_format(args)
     img.check(args)
 
 def do_mount(img, args):
@@ -45,8 +60,9 @@ def main(argv):
                         version='%(prog)s ' + VERSION)
     parser.add_argument('-v', '--verbosity', type=int, default=0)
     parser.add_argument(
-        '-j', '--json', action='store_true',
-        help='Output results in JSON format.')  # TODO:
+        '-f', '--format', metavar='plain',
+        default='plain',
+        help='Output format (plain, json, xml)')  # TODO: implement json and xml formats
     parser.add_argument(
         '-z', '--zeros', action='store_true',
         help='Output all values including empty entries (Do not suppress unused entries/clusters/blocks).')

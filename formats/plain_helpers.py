@@ -9,7 +9,7 @@ def title(title, length=100, filler='-', title_end='\n'):
     filler_length = int((length - title_length) / 2)
     filler_segment = Fore.YELLOW + filler * filler_length
     print(filler_segment +
-          Fore.YELLOW + title + filler_segment, end=title_end)
+        Fore.YELLOW + title + filler_segment, end=title_end)
     print(Style.RESET_ALL)
 
 def table(data, column_widths = {}, column_labels = False, row_labels = False, row_justify="left"):
@@ -38,7 +38,7 @@ def table_header(labels, column_count, column_widths, row_labels):
     if row_labels:
         print(' ' * (column_widths[0]+1), end='')
         print(border_color + '+' + '-' * (sum(column_widths) -
-                           column_widths[0] + column_count - 2) + '+')
+                        column_widths[0] + column_count - 2) + '+')
         print(' ' * (column_widths[0]+1), end='')
     else:
         table_line(column_widths)
@@ -59,7 +59,6 @@ def table_header(labels, column_count, column_widths, row_labels):
         print(label + border_color + '|', end='')
     print('')
     table_line(column_widths)
-
 
 def table_line(column_widths):
     border_color = Fore.GREEN

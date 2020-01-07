@@ -1,6 +1,7 @@
-import sys, os, binascii, zlib
+import sys, os, binascii, zlib, xml, json
+from collections import OrderedDict
 from colorama import Fore, Back, Style
-import screen
+import formats
 
 QCOW_MAGIC = ((ord('Q') << 24) | (ord('F') << 16) | (ord('I') << 8) | 0xfb)
 
@@ -139,27 +140,27 @@ class Image:
     def __init__(self, img_file):
         # Initialize main variables and objects
         self.file = img_file
-        self.name = self.file.name
+        self.name = os.path.basename(self.file.name)
         self.physical_size = os.path.getsize(self.file.name)
         self.header = Image.Header(self)
 
         # Map key header attributes to image object
-        self.virtual_size = self.header.size
-        self.cluster_size = self.header.cluster_size
-        self.refcount_table_offset = self.header.refcount_table_offset
-        self.l1_table_entries = self.l1_entries = self.header.l1_entries
-        self.l1_table_offset = self.header.l1_table_offset
+        self.virtual_size = self.header.attr['size']
+        self.cluster_size = self.header.attr['cluster_size']
+        self.refcount_table_offset = self.header.attr['refcount_table_offset']
+        self.l1_table_entries = self.l1_entries = self.header.attr['l1_entries']
+        self.l1_table_offset = self.header.attr['l1_table_offset']
 
         # Calculate additional useful parameters
         self.refcount_table_entries = int(
-            self.header.refcount_table_clusters * self.cluster_size /
+            self.header.attr['refcount_table_clusters'] * self.cluster_size /
             QCOW_REFCOUNT_ENTRY_SIZE)
 
         # refcount_block_entries = (cluster_size * 8 / refcount_bits)
         self.refcount_block_entries = int(
-            self.cluster_size * 8 / self.header.refcount_bits)
-        self.refcount_block_size = 1 << self.header.refcount_order >> 3
-        self.l2_table_size = self.l2_size = 1 << self.header.cluster_bits >> 3
+            self.cluster_size * 8 / self.header.attr['refcount_bits'])
+        self.refcount_block_size = 1 << self.header.attr['refcount_order'] >> 3
+        self.l2_table_size = self.l2_size = 1 << self.header.attr['cluster_bits'] >> 3
         # TODO: Needs verification l1 max table size may not be correct
         # Method 1 - Doesn't work correctly
         # self.l1_table_size = self.virtual_size >> self.header.cluster_bits >> self.header.cluster_bits << 3
@@ -168,8 +169,8 @@ class Image:
             int((self.l1_entries * QCOW_L1_ENTRY_SIZE / self.cluster_size+1)) *
             (self.cluster_size / QCOW_L1_ENTRY_SIZE))
         # Specify segments of virtual address
-        self.cluster_address_bits = self.header.cluster_bits
-        self.l2_address_bits = self.header.cluster_bits - 3
+        self.cluster_address_bits = self.header.attr['cluster_bits']
+        self.l2_address_bits = self.header.attr['cluster_bits'] - 3
         self.l1_address_bits = 64 - self.l2_address_bits -\
             self.cluster_address_bits
 
@@ -185,10 +186,10 @@ class Image:
 
 
     def get_refcount(self, offset):
-        refcount_block_index = (offset >> self.header.cluster_bits) % \
+        refcount_block_index = (offset >> self.header.attr['cluster_bits']) % \
             self.refcount_block_entries
         refcount_table_entry_index = int(
-            (offset >> self.header.cluster_bits) /
+            (offset >> self.header.attr['cluster_bits']) /
             self.refcount_block_entries)
         refcount_table_entry_offset = int(int(
             self.header.refcount_table_offset[2:], 16) +
@@ -208,7 +209,7 @@ class Image:
         refcount_table = []
         for refcount_table_entry_index in range(self.refcount_table_entries):
             refcount_table_entry_offset = int(
-                self.header.refcount_table_offset[2:], 16) + \
+                self.header.attr['refcount_table_offset'][2:], 16) + \
                 refcount_table_entry_index * 8
             self.file.seek(refcount_table_entry_offset, 0)
             current_bytes = self.file.read(8)
@@ -221,7 +222,7 @@ class Image:
         for refcount_table_entry_index in range(self.refcount_table_entries):
             block = []
             refcount_table_entry_offset = int(
-                self.header.refcount_table_offset[2:], 16) + \
+                self.header.attr['refcount_table_offset'][2:], 16) + \
                 refcount_table_entry_index * 8
             self.file.seek(refcount_table_entry_offset)
             current_bytes = self.file.read(8)
@@ -244,7 +245,7 @@ class Image:
         table = []
         for table_entry_index in range(self.l1_table_size):
             table_entry_offset = int(
-                self.header.refcount_table_offset[2:], 16) + \
+                self.header.attr['refcount_table_offset'][2:], 16) + \
                 table_entry_index * 8
             self.file.seek(table_entry_offset, 0)
             current_bytes = self.file.read(8)
@@ -257,7 +258,7 @@ class Image:
         for l1_table_entry_index in range(self.l1_table_size):
             l2_table = []
             l1_table_entry_offset = int(int(
-                self.header.l1_table_offset[2:], 16) +
+                self.header.attr['l1_table_offset'][2:], 16) +
                 l1_table_entry_index * 8)
             self.file.seek(l1_table_entry_offset)
             current_bytes = self.file.read(8)
@@ -480,7 +481,7 @@ class Image:
     def parse_compressed_descriptor(self, descriptor):
         # x = 62 - (cluster_bits - 8)
         # Bit  0 - x-1:   Host cluster offset.
-        x = 62 - (self.header.cluster_bits - 8)
+        x = 62 - (self.header.attr['cluster_bits'] - 8)
         mask = int('0' * (62-x) + '1' * x, 2)
         host_cluster_offset = descriptor & mask
         # mask = int('1' * (62-x) + '0' * x, 2)
@@ -621,81 +622,80 @@ class Image:
                 'Header Length',
                 'int']}
         raw = b''
-        magic = b''
-        version = 0
-
+        attr = OrderedDict()
         def __init__(self, img):
             self.img = img
             self.img.file.seek(0)
-            self.magic = self.img.file.read(
+            self.attr = {}
+            self.attr['magic'] = self.img.file.read(
                 Image.Header.structure['magic'][1])
-            self.version = int(self.img.file.read(
+            self.attr['version'] = int(self.img.file.read(
                 Image.Header.structure['version'][1]).hex(), 16)
-            if int(self.version) >= 3:
+            if int(self.attr['version']) >= 3:
                 self.img.file.seek(100)
-                self.header_length = int(img.file.read(
+                self.attr['header_length'] = int(img.file.read(
                     Image.Header.structure['header_length'][1]).hex(), 16)
             else:
-                self.header_length = 72
+                self.attr['header_length'] = 72
             self.img.file.seek(0)
-            self.raw = self.img.file.read(self.header_length)
+            self.raw = self.img.file.read(self.attr['header_length'])
             # Parse additional parameters
-            self.backing_file_offset = self.get_by_name(
+            self.attr['backing_file_offset'] = self.get_by_name(
                 'backing_file_offset')['value']
-            self.backing_file_size = self.get_by_name(
+            self.attr['backing_file_size'] = self.get_by_name(
                 'backing_file_size')['value']
-            self.cluster_bits = self.get_by_name(
+            self.attr['cluster_bits'] = self.get_by_name(
                 'cluster_bits')['value']
-            self.cluster_size = 1 << self.cluster_bits
-            self.size = self.get_by_name(
+            self.attr['cluster_size'] = 1 << self.attr['cluster_bits']
+            self.attr['size'] = self.get_by_name(
                 'size')['value']
-            self.crypt_method = self.get_by_name(
+            self.attr['crypt_method'] = self.get_by_name(
                 'crypt_method')['value']
-            self.l1_entries = self.get_by_name(
+            self.attr['l1_entries'] = self.get_by_name(
                 'l1_entries')['value']
-            self.l1_table_offset = self.get_by_name(
+            self.attr['l1_table_offset'] = self.get_by_name(
                 'l1_table_offset')['value']
-            self.refcount_table_offset = self.get_by_name(
+            self.attr['refcount_table_offset'] = self.get_by_name(
                 'refcount_table_offset')['value']
-            self.refcount_table_clusters = self.get_by_name(
+            self.attr['refcount_table_clusters'] = self.get_by_name(
                 'refcount_table_clusters')['value']
-            self.nb_snapshots = self.get_by_name(
+            self.attr['nb_snapshots'] = self.get_by_name(
                 'nb_snapshots')['value']
-            self.snapshots_offset = self.get_by_name(
+            self.attr['snapshots_offset'] = self.get_by_name(
                 'snapshots_offset')['value']
-            if self.version >= 3:
-                self.incompatible_features = self.get_by_name(
+            if self.attr['version'] >= 3:
+                self.attr['incompatible_features'] = self.get_by_name(
                     'incompatible_features')['value']
-                self.compatible_features = self.get_by_name(
+                self.attr['compatible_features'] = self.get_by_name(
                     'compatible_features')['value']
-                self.autoclear_features = self.get_by_name(
+                self.attr['autoclear_features'] = self.get_by_name(
                     'autoclear_features')['value']
-                self.refcount_order = self.get_by_name(
+                self.attr['refcount_order'] = self.get_by_name(
                     'refcount_order')['value']
-                self.refcount_bits = 1 << self.refcount_order
+                self.attr['refcount_bits'] = 1 << self.attr['refcount_order']
             else:
-                self.incompatible_features = '0b0'
-                self.compatible_features = '0b0'
-                self.autoclear_features = '0b0'
-                self.refcount_order = 2
-                self.refcount_bits = 4
+                self.attr['incompatible_features'] = '0b0'
+                self.attr['compatible_features'] = '0b0'
+                self.attr['autoclear_features'] = '0b0'
+                self.attr['refcount_order'] = 2
+                self.attr['refcount_bits'] = 4
 
         def __str__(self):
-            return "Magic: " + repr(self.magic) + \
-                ", Version: " + repr(self.version) + \
-                ", Header Length: " + repr(self.size)
+            return "Magic: " + repr(self.attr['magic']) + \
+                ", Version: " + repr(self.attr['version']) + \
+                ", Header Length: " + repr(self.attr['size'])
 
         def __repr__(self):
             return {
-                'Magic': repr(self.magic),
-                'Version': repr(self.version),
-                'Header Length': repr(self.size)}
+                'Magic': repr(self.attr['magic']),
+                'Version': repr(self.attr['version']),
+                'Header Length': repr(self.attr['size'])}
 
         def get_by_name(self, name):
             attr_raw = b''
             attr_value = 0
             if name in Image.Header.structure:
-                if Image.Header.structure[name][0] < self.header_length:
+                if Image.Header.structure[name][0] < self.attr['header_length']:
                     byte_start = Image.Header.structure[name][0]
                     byte_end = Image.Header.structure[name][0] + \
                         Image.Header.structure[name][1]
@@ -749,7 +749,7 @@ class Image:
             elif attr == 'cluster_bits' and value >= 9:
                 comment = valid
             elif attr == 'size' and value > 0:
-                if value % self.cluster_size == 0:
+                if value % self.attr['cluster_size'] == 0:
                     comment = valid
                 else:
                     comment = Fore.RED + "INCONSISTENT"
@@ -759,13 +759,13 @@ class Image:
                 comment = valid
             elif attr == 'l1_table_offset':
                 v = int(value[2:], 16)
-                if v > 0 and v % self.cluster_size == 0:
+                if v > 0 and v % self.attr['cluster_size'] == 0:
                     comment = valid
                 else:
                     comment = Fore.RED + "MISALIGNED"
             elif attr == 'refcount_table_offset':
                 v = int(value[2:], 16)
-                if v > 0 and v % self.cluster_size == 0:
+                if v > 0 and v % self.attr['cluster_size'] == 0:
                     comment = valid
                 else:
                     comment = Fore.RED + "MISALIGNED"
@@ -782,7 +782,7 @@ class Image:
                         self.get_by_name('nb_snapshots')['value'] == 0) or \
                         (v > 0 and
                          self.get_by_name('nb_snapshots')['value'] > 0):
-                    if v % self.cluster_size == 0:
+                    if v % self.attr['cluster_size'] == 0:
                         comment = valid
                     else:
                         comment = Fore.RED + "MISALIGNED"
@@ -790,29 +790,29 @@ class Image:
                     comment = Fore.RED + "INCONSISTENT WITH SNAPSHOT COUNT"
             # Version 3+ headers
             elif attr == 'incompatible_features':  # TODO: Add additional checks
-                if self.version < 3 and int(value, 2) > 0:
+                if self.attr['version'] < 3 and int(value, 2) > 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
                 else:
                     comment = valid
             elif attr == 'compatible_features':  # TODO: Add additional checks
-                if self.version < 3 and int(value, 2) > 0:
+                if self.attr['version'] < 3 and int(value, 2) > 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
                 else:
                     comment = valid
             elif attr == 'autoclear_features':  # TODO: Add additional checks
-                if self.version < 3 and int(value, 2) > 0:
+                if self.attr['version'] < 3 and int(value, 2) > 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
                 else:
                     comment = valid
             elif attr == 'refcount_order':
-                if self.version < 3 and value != 4:
+                if self.attr['version'] < 3 and value != 4:
                     comment = Fore.RED + "VERSION 3+ ONLY"
-                elif self.version >= 3 and value < 6 and value > 0:
+                elif self.attr['version'] >= 3 and value < 6 and value > 0:
                     comment = valid
                 else:
                     comment = invalid
             elif attr == 'header_length':
-                if self.version >= 3:
+                if self.attr['version'] >= 3:
                     if value == 104:
                         comment = Fore.GREEN + "REGULAR HEADER"
                     elif value > 104:
@@ -826,8 +826,8 @@ class Image:
                 comment = invalid
             return comment
 
-    def print_info(self, args):
-        screen.title('INFO')
+    def plain_info(self, args):
+        formats.plain_helpers.title('INFO')
         table_data = []
         table_data.append(['Filename', Fore.BLUE + self.name])
         table_data.append(['Physical Size', Fore.MAGENTA +
@@ -843,10 +843,25 @@ class Image:
                 ['L1 Table Size', Fore.LIGHTMAGENTA_EX + str(self.l1_table_size)])
             table_data.append(
                 ['L2 Table Size', Fore.LIGHTMAGENTA_EX + str(self.l2_table_size)])
-        screen.table(table_data,[20,20])
+        formats.plain_helpers.table(table_data,[25,45])
 
-    def print_header(self, args):
-        screen.title('HEADER')
+    def json_info(self, args):
+        info = OrderedDict()
+        info['filename'] = self.name
+        info['physical_size'] = self.physical_size
+        info['virtual_size'] = self.virtual_size
+        info['cluster_size'] = self.cluster_size
+        if args.detailed:
+            info['refcount_table_entries'] = self.refcount_table_entries
+            info['refcount_block_entries'] = self.refcount_block_entries
+            info['l1_table_size'] = self.l1_table_size
+            info['l2_table_size'] = self.l2_table_size
+        output = OrderedDict()
+        output['info'] = info
+        return json.dumps(output, indent=2)
+
+    def plain_header(self, args):
+        formats.plain_helpers.title('HEADER')
         table_labels = ['Byte(s)','Raw (Hex)','Value','Status','Description']
         table_data = []
         table_data.append(table_labels)
@@ -858,11 +873,23 @@ class Image:
             s = self.comment(key, attr['value'])
             d = attr['description']
             table_data.append([key,b,r,v,s,d])
-        screen.table(table_data,[25,7,17,10,16,36],True,True)
+        formats.plain_helpers.table(table_data,[25,7,17,10,16,36],True,True)
 
-    def print_refcount_table(self, args):
+    def json_header(self, args):
+        header = OrderedDict()
+        header['raw'] = repr(self.header.raw)
+        for key in self.header.attr:
+            if isinstance(self.header.attr[key], bytes):
+                header[key] = repr(self.header.attr[key])
+            else:
+                header[key] = self.header.attr[key]
+        output = OrderedDict()
+        output['header'] = header
+        return json.dumps(output, indent = 2)
+
+    def plain_refcount_table(self, args):
         indent = "\t"
-        screen.title('REFCOUNT TABLE')
+        formats.plain_helpers.title('REFCOUNT TABLE')
         print(Fore.WHITE, end='')
         print(indent + "Cluster Size: " + str(self.cluster_size) +
             " bytes\tCluster Bits: "+str(self.header.cluster_bits))
@@ -877,7 +904,7 @@ class Image:
             print(indent + "RefCount Block Entries: " +
                 str(self.refcount_block_entries))
         print(Style.RESET_ALL)
-        screen.title('REFCOUNT TABLE ENTRIES')
+        formats.plain_helpers.title('REFCOUNT TABLE ENTRIES')
         if not args.detailed:
             column_count = 4
             row_total = column_count
@@ -914,11 +941,11 @@ class Image:
         print(Style.RESET_ALL)
 
 
-    def print_refcount_blocks(self, args):
+    def plain_refcount_blocks(self, args):
         indent = "\t"
         line_header = "\n" + indent + Fore.WHITE
         filler = "\t" + Fore.WHITE + '0' * self.refcount_block_size
-        screen.title('REFCOUNT BLOCKS')
+        formats.plain_helpers.title('REFCOUNT BLOCKS')
         for refcount_table_entry_index in range(self.refcount_table_entries):
             refcount_table_entry_offset = int(
                 self.refcount_table_offset[2:], 16) + refcount_table_entry_index * 8
@@ -929,7 +956,7 @@ class Image:
             row_total = int(self.refcount_block_size / 2 * column_count)
             # if not args.detailed:
             print(Style.RESET_ALL)
-            screen.title(hex(refcount_table_entry_offset) +
+            formats.plain_helpers.title(hex(refcount_table_entry_offset) +
                         ": RefCount Block " + str(refcount_table_entry_index))
             refcount_table_entry_bits = format(
                 refcount_table_entry, '#066b')
@@ -974,9 +1001,9 @@ class Image:
         print(Style.RESET_ALL)
 
 
-    def print_l1_table(self, args):
+    def plain_l1_table(self, args):
         indent = "\t"
-        screen.title('L1 TABLE')
+        formats.plain_helpers.title('L1 TABLE')
         print(Fore.WHITE, end='')
         print(indent + "L1 Table Offset: " + self.header.l1_table_offset)
         if args.detailed:
@@ -988,7 +1015,7 @@ class Image:
                 str(self.l1_table_size))
 
         print(Style.RESET_ALL)
-        screen.title('L1 TABLE ENTRIES')
+        formats.plain_helpers.title('L1 TABLE ENTRIES')
         column_count = 4
         row_total = column_count
         if args.zeros:
@@ -1026,9 +1053,9 @@ class Image:
         print(Style.RESET_ALL)
 
 
-    def print_l2_tables(self, args):
+    def plain_l2_tables(self, args):
         indent = "\t"
-        screen.title('L2 TABLES')
+        formats.plain_helpers.title('L2 TABLES')
         print("L2 Table Size:", self.l2_table_size)
         column_count = 4
         row_total = column_count
@@ -1042,7 +1069,7 @@ class Image:
             l1_table_entry = self.l1_table[l1_table_index]
             indent = "\t"
             print("\n")
-            screen.title('L2 TABLE  #' +
+            formats.plain_helpers.title('L2 TABLE  #' +
                         str(l1_table_index) + ' (L1 Value: ' + hex(l1_table_entry) + ')')
             if l1_table_entry == 0 and args.zeros:
                 for l2_table_index in range(self.l2_table_size):
@@ -1114,7 +1141,7 @@ class Image:
                 print(Style.RESET_ALL)
 
 
-    def print_data(self, args):
+    def plain_data(self, args):
         f_args = {}
         if args.address:
             try:
@@ -1142,7 +1169,7 @@ class Image:
                                 args.number_of_chunks * f_args['increment'])
         if not args.no_metadata:
             print(args)
-            screen.title('DATA')
+            formats.plain_helpers.title('DATA')
         data = self.read_data(f_args)
         raw_data = b''
         for chunk in data:
@@ -1151,7 +1178,7 @@ class Image:
             else:
                 if not args.no_metadata:
                     print('\n')
-                    screen.title(
+                    formats.plain_helpers.title(
                         'Virtual Address: ' +
                         format(chunk['metadata']['virtual_address'], '016x') +
                         ' (' + format(chunk['metadata']['physical_offset'], '016x') +
@@ -1165,51 +1192,78 @@ class Image:
 
 
     def get_info(self, args):
-        self.print_info(args)
-        self.print_header(args)
-        if args.all:
-            self.print_refcount_table(args)
-            self.print_refcount_blocks(args)
-            self.print_l1_table(args)
-            self.print_l2_tables(args)
+        if args.format == 'plain':
+            self.plain_info(args)
+            self.plain_header(args)
+            if args.all:
+                self.plain_refcount_table(args)
+                self.plain_refcount_blocks(args)
+                self.plain_l1_table(args)
+                self.plain_l2_tables(args)
+        elif args.format == 'json':
+            output = OrderedDict()
+            output.update(json.JSONDecoder(
+                object_pairs_hook=OrderedDict).decode(self.json_info(args)))
+            output.update(json.JSONDecoder(
+                object_pairs_hook=OrderedDict).decode(self.json_header(args)))
+            #if args.all:
+            #    self.json_refcount_table(args)
+            #    self.json_refcount_blocks(args)
+            #    self.json_l1_table(args)
+            #    self.json_l2_tables(args)
+            print(json.dumps(output, indent=2))
+        #elif args.format == 'xml':
+        #    self.xml_info(args)
+        #    self.xml_header(args)
+        #    if args.all:
+        #        self.xml_refcount_table(args)
+        #        self.xml_refcount_blocks(args)
+        #        self.xml_l1_table(args)
+        #        self.xml_l2_tables(args)
 
 
     def get_snapshots(self, args):
-        print("Not Yet Implemented")
-
+        if args.format == 'plain':
+            print("Not Yet Implemented")
 
     def get_map(self, args):
-        print("Not Yet Implemented")
-
+        if args.format == 'plain':
+            print("Not Yet Implemented")
 
     def get_header(self, args):
-        self.print_header(args)
-
+        if args.format == 'plain':
+            self.plain_header(args)
+        elif args.format == 'json':
+            print(self.json_header(args))
 
     def get_tables(self, args):
-        if args.all or args.primary:
-            if args.raw:
-                print(self.refcount_table)
-            else:
-                self.print_refcount_table(args)
-        if args.all or args.primary:
-            if args.raw:
-                print(self.l1_table)
-            else:
-                self.print_l1_table(args)
-        if args.all or args.secondary:
-            if not self.refcount_blocks_initialized:
-                self.parse_refcount_blocks()
-            if args.raw:
-                print(self.refcount_blocks)
-            else:
-                self.print_refcount_blocks(args)
-            if not self.l2_initialized:
-                self.parse_l2_tables()
-            if args.raw:
-                print(self.l2_tables)
-            else:
-                self.print_l2_tables(args)
+        if args.format == 'plain':
+            if args.all or args.primary or not (args.all or args.primary or args.secondary):
+                if args.raw:
+                    print(self.refcount_table)
+                else:
+                    self.plain_refcount_table(args)
+            if args.all or args.secondary:
+                if not self.refcount_blocks_initialized:
+                    self.parse_refcount_blocks()
+                if args.raw:
+                    print(self.refcount_blocks)
+                else:
+                    self.plain_refcount_blocks(args)
+
+            if args.all or args.primary or not (args.all or args.primary or args.secondary):
+                if args.raw:
+                    print(self.l1_table)
+                else:
+                    self.plain_l1_table(args)
+
+            if args.all or args.secondary:
+                if not self.l2_initialized:
+                    self.parse_l2_tables()
+                if args.raw:
+                    print(self.l2_tables)
+                else:
+                    self.plain_l2_tables(args)
 
 
 
@@ -1219,13 +1273,13 @@ class Image:
         if not self.refcount_blocks_initialized:
                 self.parse_refcount_blocks()
         #if not args.no_metadata:
-        #    self.print_header(args)
-        self.print_data(args)
+        #    self.plain_header(args)
+        self.plain_data(args)
 
 
     def get_check(self, args, f_args={}):
-        self.print_info(args)
-        self.print_header(args)
+        self.plain_info(args)
+        self.plain_header(args)
         l2_bits = self.header.cluster_bits - 3
         l1_bits = 64 - l2_bits - self.header.cluster_bits
         i = 0
@@ -1246,13 +1300,13 @@ class Image:
                 leaked.append(result)
             i += 1
         if args.all:
-            screen.title('Inconsistent Clusters')
+            formats.plain_helpers.title('Inconsistent Clusters')
             print(inconsistent)
         if args.all or args.dereferenced:
-            screen.title('Dereferenced Clusters')
+            formats.plain_helpers.title('Dereferenced Clusters')
             print(dereferenced)
         if args.all or args.leaks:
-            screen.title('Leaked Clusters')
+            formats.plain_helpers.title('Leaked Clusters')
             print(leaked)
 
 
