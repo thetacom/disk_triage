@@ -2,10 +2,10 @@
 import os, sys, argparse, math, binascii
 from collections import OrderedDict
 from colorama import Fore, Back, Style
-import QCOW
+from disk_types import *
 # Output functions
 
-VERSION = "0.0.7"
+VERSION = "0.0.9"
 def check_format(args):
     if args.format in {'plain','json'}:
         pass
@@ -49,6 +49,9 @@ def do_mount(img, args):
 
 def do_unmount(img, args):
     img.unmount(args)
+
+def do_restore(img, args):
+    img.restore_snapshot(args)
 
 def main(argv):
     parser = argparse.ArgumentParser(
@@ -134,6 +137,9 @@ def main(argv):
         default='0x0000000000000000',
         help='Starting virtual address of output.')
     data_subparser.add_argument(
+        '-p', '--physical_address', action='store_true',
+        help='(Specify the provided address is physical not virtual.')
+    data_subparser.add_argument(
         '-H', '--human-readable', action='store_true',
         help='Output decoded data.')
     data_subparser.add_argument(
@@ -145,7 +151,7 @@ def main(argv):
         help='Number of data chunks to output.')
     data_qty_group.add_argument(
         '-A', '--all', action='store_true',
-        help='Number of data chunks to output.')
+        help='Output all data within disk image.')
 
     data_chunk_type_group = data_subparser.add_mutually_exclusive_group()
     data_chunk_type_group.add_argument(
@@ -154,6 +160,9 @@ def main(argv):
     data_chunk_type_group.add_argument(
         '-S', '--sectors', action='store_true',
         help='Output data in sector sized chunks.')
+    data_chunk_type_group.add_argument(
+        '-C', '--clusters', action='store_true',
+        help='(Default) Output data in cluster sized chunks.')
 
     data_set_group = data_subparser.add_mutually_exclusive_group()
     data_set_group.add_argument(
@@ -195,11 +204,15 @@ def main(argv):
     unmount_subparser = do_subparsers.add_parser(
         'unmount', help='Attempt to unmount disk image file.')
     unmount_subparser.set_defaults(func=do_unmount)
+    restore_subparser = do_subparsers.add_parser(
+        'restore', help='Restore an existing snapshot.')
+    restore_subparser.add_argument(
+        '-n', '--name', type=str, metavar='SNAPSHOT_NAME',
+        help='Name of snapshot to be restore.')
+    restore_subparser.set_defaults(func=do_restore)
 
     # Positional filename argument
     parser.add_argument(
-        # 'file', type=argparse.FileType('rb', 0), metavar='FILE',
-        # help='Filename of the disk image to be triaged.')
         'file',
         type=str,
         metavar='FILE',
@@ -214,7 +227,7 @@ def main(argv):
     with open(args.file, 'rb') as disk_file:
         file_ext = os.path.splitext(args.file)[1][1:]
         if file_ext in {'qcow','qcow2','qcow3'}:
-            img = QCOW.Image(disk_file)
+            img = qcow.Image(disk_file)
             args.func(img, args)
         elif file_ext in {'raw', 'cloop', 'cow', 'img', 'iso', 'vdi', 'vhd', 'vmdk', 'vpc', 'wim', 'dmg'}:
             print("Not Implemented Yet.")

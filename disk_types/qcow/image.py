@@ -1,136 +1,140 @@
-import sys, os, binascii, zlib, xml, json
+import sys
+import os
+import binascii
+import zlib
+import xml
+import json
 from collections import OrderedDict
 from colorama import Fore, Back, Style
-import formats
-
-QCOW_MAGIC = ((ord('Q') << 24) | (ord('F') << 16) | (ord('I') << 8) | 0xfb)
-
-QCOW_CRYPT_NONE = 0
-QCOW_CRYPT_AES = 1
-QCOW_CRYPT_LUKS = 2
-
-QCOW_MAX_CRYPT_CLUSTERS = 32
-QCOW_MAX_SNAPSHOTS = 65536
-
-# Field widths in qcow2 mean normal cluster offsets cannot reach * 64PB
-# depending on cluster size, compressed clusters can have a
-# smaller limit(64PB for up to 16k clusters, then ramps down to
-# 512TB for 2M clusters).
-QCOW_MAX_CLUSTER_OFFSET = (1 << 56) - 1
-
-# 8 MB refcount table is enough for 2 PB images at 64k cluster size
-# (128 GB for 512 byte clusters, 2 EB for 2 MB clusters)
-QCOW_MAX_REFTABLE_SIZE = 8 * 1048576  # (8 * MiB)
-
-# 32 MB L1 table is enough for 2 PB images at 64k cluster size
-# (128 GB for 512 byte clusters, 2 EB for 2 MB clusters)
-QCOW_MAX_L1_SIZE = 32 * 1048576  # (32 * MiB)
-
-# Allow for an average of 1k per snapshot table entry, should be plenty of
-# space for snapshot names and IDs * /
-QCOW_MAX_SNAPSHOTS_SIZE = 1024 * QCOW_MAX_SNAPSHOTS
-
-# Bitmap header extension constraints
-QCOW2_MAX_BITMAPS = 65535
-QCOW2_MAX_BITMAP_DIRECTORY_SIZE = 1024 * QCOW2_MAX_BITMAPS
-
-# L1 offset mask indicates the l2 offset portion of an l1 table entry
-# Bit Mask
-# 0000000011111111111111111111111111111111111111111111111111111111
-QCOW_L2_OFFSET_MASK = 72057594037927935
-
-# indicates the cluster descriptor portion of an l2 table entry
-# Bit Mask
-# 0011111111111111111111111111111111111111111111111111111111111111
-QCOW_DESCRIPTOR_MASK = 4611686018427387903
-
-# indicate that the refcount of the referenced cluster is exactly one.
-# Bit Mask
-# 1000000000000000000000000000000000000000000000000000000000000000
-QCOW_OFLAG_COPIED = 1 << 63
-
-# indicate that the cluster is compressed(they never have the copied flag)
-# Bit Mask
-# 0100000000000000000000000000000000000000000000000000000000000000
-QCOW_OFLAG_COMPRESSED = 1 << 62
-
-# The cluster reads as all zeros
-# 1-bit
-# Bit Mask 1
-QCOW_OFLAG_ZERO = 1 << 0
-
-# 9-bits
-# Bit Mask
-# 00000000000000000000000000000000000000000000000000000111111110
-QCOW_DESCRIPTOR_RESERVED_LOWER_MASK = 510
-
-# 6-bits
-# Bit Mask
-# 11111100000000000000000000000000000000000000000000000000000000
-QCOW_DESCRIPTOR_RESERVED_UPPER_MASK = 4539628424389459968
-
-# 47-bits
-# Bit Mask
-# 00000011111111111111111111111111111111111111111111111000000000
-QCOW_DESCRIPTOR_USEABLE_OFFSET_MASK = 72057594037927424
-
-MIN_CLUSTER_BITS = 9
-MAX_CLUSTER_BITS = 21
-
-# Defined in the qcow2 spec(compressed cluster descriptor)
-QCOW2_COMPRESSED_SECTOR_SIZE = 512
-QCOW2_COMPRESSED_SECTOR_MASK = ~(QCOW2_COMPRESSED_SECTOR_SIZE - 1)
-
-# Must be at least 2 to cover COW
-MIN_L2_CACHE_SIZE = 2  # cache entries
-
-# Must be at least 4 to cover all cases of refcount table growth
-MIN_REFCOUNT_CACHE_SIZE = 4  # clusters
-
-if sys.platform == "linux" or sys.platform == "linux2":
-    # linux
-    DEFAULT_L2_CACHE_MAX_SIZE = 32 * 1048576  # (32 * MiB)
-    DEFAULT_CACHE_CLEAN_INTERVAL = 600  # seconds
-else:
-    DEFAULT_L2_CACHE_MAX_SIZE = 8 * 1048576  # (8 * MiB)
-    # Cache clean interval is currently available only on Linux, so must be 0
-    DEFAULT_CACHE_CLEAN_INTERVAL = 0
-
-DEFAULT_CLUSTER_SIZE = 65536
-
-QCOW_REFCOUNT_ENTRY_BITS = 3
-QCOW_REFCOUNT_ENTRY_SIZE = 1 << QCOW_REFCOUNT_ENTRY_BITS
-
-QCOW_L1_ENTRY_BITS = 3
-QCOW_L1_ENTRY_SIZE = 1 << QCOW_L1_ENTRY_BITS
-
-QCOW_L2_ENTRY_BITS = 3
-QCOW_L2_ENTRY_SIZE = 1 << QCOW_L2_ENTRY_BITS
-
-QCOW2_OPT_DATA_FILE = "data-file"
-QCOW2_OPT_LAZY_REFCOUNTS = "lazy-refcounts"
-QCOW2_OPT_DISCARD_REQUEST = "pass-discard-request"
-QCOW2_OPT_DISCARD_SNAPSHOT = "pass-discard-snapshot"
-QCOW2_OPT_DISCARD_OTHER = "pass-discard-other"
-QCOW2_OPT_OVERLAP = "overlap-check"
-QCOW2_OPT_OVERLAP_TEMPLATE = "overlap-check.template"
-QCOW2_OPT_OVERLAP_MAIN_HEADER = "overlap-check.main-header"
-QCOW2_OPT_OVERLAP_ACTIVE_L1 = "overlap-check.active-l1"
-QCOW2_OPT_OVERLAP_ACTIVE_L2 = "overlap-check.active-l2"
-QCOW2_OPT_OVERLAP_REFCOUNT_TABLE = "overlap-check.refcount-table"
-QCOW2_OPT_OVERLAP_REFCOUNT_BLOCK = "overlap-check.refcount-block"
-QCOW2_OPT_OVERLAP_SNAPSHOT_TABLE = "overlap-check.snapshot-table"
-QCOW2_OPT_OVERLAP_INACTIVE_L1 = "overlap-check.inactive-l1"
-QCOW2_OPT_OVERLAP_INACTIVE_L2 = "overlap-check.inactive-l2"
-QCOW2_OPT_OVERLAP_BITMAP_DIRECTORY = "overlap-check.bitmap-directory"
-QCOW2_OPT_CACHE_SIZE = "cache-size"
-QCOW2_OPT_L2_CACHE_SIZE = "l2-cache-size"
-QCOW2_OPT_L2_CACHE_ENTRY_SIZE = "l2-cache-entry-size"
-QCOW2_OPT_REFCOUNT_CACHE_SIZE = "refcount-cache-size"
-QCOW2_OPT_CACHE_CLEAN_INTERVAL = "cache-clean-interval"
-
+import output_formats as formats
 
 class Image:
+    QCOW_MAGIC = ((ord('Q') << 24) | (ord('F') << 16) | (ord('I') << 8) | 0xfb)
+
+    QCOW_CRYPT_NONE = 0
+    QCOW_CRYPT_AES = 1
+    QCOW_CRYPT_LUKS = 2
+
+    QCOW_MAX_CRYPT_CLUSTERS = 32
+    QCOW_MAX_SNAPSHOTS = 65536
+
+    # Field widths in qcow2 mean normal cluster offsets cannot reach * 64PB
+    # depending on cluster size, compressed clusters can have a
+    # smaller limit(64PB for up to 16k clusters, then ramps down to
+    # 512TB for 2M clusters).
+    QCOW_MAX_CLUSTER_OFFSET = (1 << 56) - 1
+
+    # 8 MB refcount table is enough for 2 PB images at 64k cluster size
+    # (128 GB for 512 byte clusters, 2 EB for 2 MB clusters)
+    QCOW_MAX_REFTABLE_SIZE = 8 * 1048576  # (8 * MiB)
+
+    # 32 MB L1 table is enough for 2 PB images at 64k cluster size
+    # (128 GB for 512 byte clusters, 2 EB for 2 MB clusters)
+    QCOW_MAX_L1_SIZE = 32 * 1048576  # (32 * MiB)
+
+    # Allow for an average of 1k per snapshot table entry, should be plenty of
+    # space for snapshot names and IDs * /
+    QCOW_MAX_SNAPSHOTS_SIZE = 1024 * QCOW_MAX_SNAPSHOTS
+
+    # Bitmap header extension constraints
+    QCOW2_MAX_BITMAPS = 65535
+    QCOW2_MAX_BITMAP_DIRECTORY_SIZE = 1024 * QCOW2_MAX_BITMAPS
+
+    # L1 offset mask indicates the l2 offset portion of an l1 table entry
+    # Bit Mask
+    # 0000000011111111111111111111111111111111111111111111111111111111
+    QCOW_L2_OFFSET_MASK = 72057594037927935
+
+    # indicates the cluster descriptor portion of an l2 table entry
+    # Bit Mask
+    # 0011111111111111111111111111111111111111111111111111111111111111
+    QCOW_DESCRIPTOR_MASK = 4611686018427387903
+
+    # indicate that the refcount of the referenced cluster is exactly one.
+    # Bit Mask
+    # 1000000000000000000000000000000000000000000000000000000000000000
+    QCOW_OFLAG_COPIED = 1 << 63
+
+    # indicate that the cluster is compressed(they never have the copied flag)
+    # Bit Mask
+    # 0100000000000000000000000000000000000000000000000000000000000000
+    QCOW_OFLAG_COMPRESSED = 1 << 62
+
+    # The cluster reads as all zeros
+    # 1-bit
+    # Bit Mask 1
+    QCOW_OFLAG_ZERO = 1 << 0
+
+    # 9-bits
+    # Bit Mask
+    # 00000000000000000000000000000000000000000000000000000111111110
+    QCOW_DESCRIPTOR_RESERVED_LOWER_MASK = 510
+
+    # 6-bits
+    # Bit Mask
+    # 11111100000000000000000000000000000000000000000000000000000000
+    QCOW_DESCRIPTOR_RESERVED_UPPER_MASK = 4539628424389459968
+
+    # 47-bits
+    # Bit Mask
+    # 00000011111111111111111111111111111111111111111111111000000000
+    QCOW_DESCRIPTOR_USEABLE_OFFSET_MASK = 72057594037927424
+
+    MIN_CLUSTER_BITS = 9
+    MAX_CLUSTER_BITS = 21
+
+    # Defined in the qcow2 spec(compressed cluster descriptor)
+    QCOW2_COMPRESSED_SECTOR_SIZE = 512
+    QCOW2_COMPRESSED_SECTOR_MASK = ~(QCOW2_COMPRESSED_SECTOR_SIZE - 1)
+
+    # Must be at least 2 to cover COW
+    MIN_L2_CACHE_SIZE = 2  # cache entries
+
+    # Must be at least 4 to cover all cases of refcount table growth
+    MIN_REFCOUNT_CACHE_SIZE = 4  # clusters
+
+    if sys.platform == "linux" or sys.platform == "linux2":
+        # linux
+        DEFAULT_L2_CACHE_MAX_SIZE = 32 * 1048576  # (32 * MiB)
+        DEFAULT_CACHE_CLEAN_INTERVAL = 600  # seconds
+    else:
+        DEFAULT_L2_CACHE_MAX_SIZE = 8 * 1048576  # (8 * MiB)
+        # Cache clean interval is currently available only on Linux, so must be 0
+        DEFAULT_CACHE_CLEAN_INTERVAL = 0
+
+    DEFAULT_CLUSTER_SIZE = 65536
+
+    QCOW_REFCOUNT_ENTRY_BITS = 3
+    QCOW_REFCOUNT_ENTRY_SIZE = 1 << QCOW_REFCOUNT_ENTRY_BITS
+
+    QCOW_L1_ENTRY_BITS = 3
+    QCOW_L1_ENTRY_SIZE = 1 << QCOW_L1_ENTRY_BITS
+
+    QCOW_L2_ENTRY_BITS = 3
+    QCOW_L2_ENTRY_SIZE = 1 << QCOW_L2_ENTRY_BITS
+
+    QCOW2_OPT_DATA_FILE = "data-file"
+    QCOW2_OPT_LAZY_REFCOUNTS = "lazy-refcounts"
+    QCOW2_OPT_DISCARD_REQUEST = "pass-discard-request"
+    QCOW2_OPT_DISCARD_SNAPSHOT = "pass-discard-snapshot"
+    QCOW2_OPT_DISCARD_OTHER = "pass-discard-other"
+    QCOW2_OPT_OVERLAP = "overlap-check"
+    QCOW2_OPT_OVERLAP_TEMPLATE = "overlap-check.template"
+    QCOW2_OPT_OVERLAP_MAIN_HEADER = "overlap-check.main-header"
+    QCOW2_OPT_OVERLAP_ACTIVE_L1 = "overlap-check.active-l1"
+    QCOW2_OPT_OVERLAP_ACTIVE_L2 = "overlap-check.active-l2"
+    QCOW2_OPT_OVERLAP_REFCOUNT_TABLE = "overlap-check.refcount-table"
+    QCOW2_OPT_OVERLAP_REFCOUNT_BLOCK = "overlap-check.refcount-block"
+    QCOW2_OPT_OVERLAP_SNAPSHOT_TABLE = "overlap-check.snapshot-table"
+    QCOW2_OPT_OVERLAP_INACTIVE_L1 = "overlap-check.inactive-l1"
+    QCOW2_OPT_OVERLAP_INACTIVE_L2 = "overlap-check.inactive-l2"
+    QCOW2_OPT_OVERLAP_BITMAP_DIRECTORY = "overlap-check.bitmap-directory"
+    QCOW2_OPT_CACHE_SIZE = "cache-size"
+    QCOW2_OPT_L2_CACHE_SIZE = "l2-cache-size"
+    QCOW2_OPT_L2_CACHE_ENTRY_SIZE = "l2-cache-entry-size"
+    QCOW2_OPT_REFCOUNT_CACHE_SIZE = "refcount-cache-size"
+    QCOW2_OPT_CACHE_CLEAN_INTERVAL = "cache-clean-interval"
+
     current_location = 0
     refcount_table = []
     refcount_blocks = []
@@ -150,11 +154,16 @@ class Image:
         self.refcount_table_offset = self.header.attr['refcount_table_offset']
         self.l1_table_entries = self.l1_entries = self.header.attr['l1_entries']
         self.l1_table_offset = self.header.attr['l1_table_offset']
+        #TODO: Lookup backing file name if present
+
+        #Snapshots
+        #TODO: Parse snapshot table entries
+        #self.parse_snapshots()
 
         # Calculate additional useful parameters
         self.refcount_table_entries = int(
             self.header.attr['refcount_table_clusters'] * self.cluster_size /
-            QCOW_REFCOUNT_ENTRY_SIZE)
+            self.QCOW_REFCOUNT_ENTRY_SIZE)
 
         # refcount_block_entries = (cluster_size * 8 / refcount_bits)
         self.refcount_block_entries = int(
@@ -166,8 +175,8 @@ class Image:
         # self.l1_table_size = self.virtual_size >> self.header.cluster_bits >> self.header.cluster_bits << 3
         # Method 2 - ?
         self.l1_table_size = int(
-            int((self.l1_entries * QCOW_L1_ENTRY_SIZE / self.cluster_size+1)) *
-            (self.cluster_size / QCOW_L1_ENTRY_SIZE))
+            int((self.l1_entries * self.QCOW_L1_ENTRY_SIZE / self.cluster_size+1)) *
+            (self.cluster_size / self.QCOW_L1_ENTRY_SIZE))
         # Specify segments of virtual address
         self.cluster_address_bits = self.header.attr['cluster_bits']
         self.l2_address_bits = self.header.attr['cluster_bits'] - 3
@@ -263,7 +272,7 @@ class Image:
             self.file.seek(l1_table_entry_offset)
             current_bytes = self.file.read(8)
             l1_table_entry = int.from_bytes(current_bytes, "big")
-            l2_table_offset = l1_table_entry & QCOW_L2_OFFSET_MASK
+            l2_table_offset = l1_table_entry & self.QCOW_L2_OFFSET_MASK
             if l2_table_offset < self.physical_size:
 
                 for l2_table_index in range(self.l2_table_size):
@@ -280,6 +289,8 @@ class Image:
         self.l2_tables = l2_tables
         self.l2_initialized = True
 
+    #def parse_snapshots: #TODO: Snapshots
+    
     def parse_address(self, virtual_address):
         # Example address (L1 Index)(L2 Index)(Cluster Offset)
 
@@ -310,7 +321,7 @@ class Image:
         address_parts = self.parse_address(virtual_address)
         l1_index = address_parts['l1_index']
         l2_index = address_parts['l2_index']
-        metadata['virtual_address'] = virtual_address
+        metadata['address'] = virtual_address
         metadata['address_parts'] = address_parts
         metadata['l1'] = self.parse_l1_value(self.l1_table[l1_index])
         metadata['l2'] = self.parse_l2_value(
@@ -423,13 +434,13 @@ class Image:
                     else:
                         compressed_data = self.read_physical_bytes(
                             address_metadata['physical_offset'],
-                            QCOW2_COMPRESSED_SECTOR_SIZE)
+                            self.QCOW2_COMPRESSED_SECTOR_SIZE)
                         decompressed_data = zlib.decompress(
                             compressed_data, -zlib.MAX_WBITS,
-                            QCOW2_COMPRESSED_SECTOR_SIZE)
-                        self.current_location += QCOW2_COMPRESSED_SECTOR_SIZE
-                        bytes_remaining -= QCOW2_COMPRESSED_SECTOR_SIZE
-                        if bytes_remaining >= QCOW2_COMPRESSED_SECTOR_SIZE:
+                            self.QCOW2_COMPRESSED_SECTOR_SIZE)
+                        self.current_location += self.QCOW2_COMPRESSED_SECTOR_SIZE
+                        bytes_remaining -= self.QCOW2_COMPRESSED_SECTOR_SIZE
+                        if bytes_remaining >= self.QCOW2_COMPRESSED_SECTOR_SIZE:
                             bytes_read += decompressed_data
                         else:
                             bytes_read += decompressed_data[:bytes_remaining]
@@ -441,36 +452,41 @@ class Image:
                   self.current_location + ")")
             exit(2)
 
-    def read_virtual_range(self, virtual_address, f_args):
-        metadata = self.get_address_metadata(virtual_address)
-        self.seek(virtual_address)
-        return {'metadata': metadata, 'data': self.read(f_args['increment'])}
+    def read_range(self, address, f_args):
+        if f_args['physical_address']:
+            return {'metadata': {'address': address, 'address_parts': 'N/A', 
+                                'l1': 'N/A', 'l2': 'N/A', 'physical_offset': address}, 
+                    'data': self.read_physical_bytes(address, f_args['increment'])}
+        else:
+            metadata = self.get_address_metadata(address)
+            self.seek(address)
+            return {'metadata': metadata, 'data': self.read(f_args['increment'])}
 
     def read_data(self, f_args):
         data = self.iterate_addresses(
-            self.read_virtual_range, f_args)
+            self.read_range, f_args)
         return data
 
     def l1_value_to_refcount(self, l1_value):
-        return (l1_value & QCOW_OFLAG_COPIED) >> 63
+        return (l1_value & self.QCOW_OFLAG_COPIED) >> 63
 
     def l1_value_to_l2_offset(self, l1_value):
-        return (l1_value & ~QCOW_OFLAG_COPIED)
+        return (l1_value & ~self.QCOW_OFLAG_COPIED)
 
     def l2_value_to_cluster_descriptor(self, l2_value):
-        return l2_value & QCOW_DESCRIPTOR_MASK
+        return l2_value & self.QCOW_DESCRIPTOR_MASK
 
     def l2_value_to_descriptor_type(self, l2_value):
-        return (l2_value & QCOW_OFLAG_COMPRESSED) >> 62
+        return (l2_value & self.QCOW_OFLAG_COMPRESSED) >> 62
 
     def l2_value_to_l2_refcount(self, l2_value):
-        return (l2_value & QCOW_OFLAG_COPIED) >> 63
+        return (l2_value & self.QCOW_OFLAG_COPIED) >> 63
 
     def parse_standard_descriptor(self, descriptor):
-        read_as_zeros = descriptor & QCOW_OFLAG_ZERO
-        reserved_lower = descriptor & QCOW_DESCRIPTOR_RESERVED_LOWER_MASK >> 1
-        host_cluster_offset = descriptor & QCOW_DESCRIPTOR_USEABLE_OFFSET_MASK
-        reserved_upper = descriptor & QCOW_DESCRIPTOR_RESERVED_UPPER_MASK >> 56
+        read_as_zeros = descriptor & self.QCOW_OFLAG_ZERO
+        reserved_lower = descriptor & self.QCOW_DESCRIPTOR_RESERVED_LOWER_MASK >> 1
+        host_cluster_offset = descriptor & self.QCOW_DESCRIPTOR_USEABLE_OFFSET_MASK
+        reserved_upper = descriptor & self.QCOW_DESCRIPTOR_RESERVED_UPPER_MASK >> 56
         return {
             'value': descriptor,
             'read_as_zeros': read_as_zeros,
@@ -531,13 +547,19 @@ class Image:
 
     def iterate_addresses(self, function, f_args):
         results = []
-        if 'start' not in f_args:
-            f_args['start'] = 0
-        if 'stop' not in f_args:
-            f_args['stop'] = self.l1_table_entries * self.l2_table_size * \
-                self.cluster_size
+
         if 'increment' not in f_args:
             f_args['increment'] = self.cluster_size
+
+        if 'start' not in f_args:
+            f_args['start']=0
+        
+        if 'stop' not in f_args:
+            if f_args['physical_address']:
+                f_args['stop'] = self.physical_size
+            else:
+                f_args['stop'] = self.l1_table_entries * self.l2_table_size * \
+                    self.cluster_size
 
         for address in range(
                 f_args['start'],
@@ -892,15 +914,15 @@ class Image:
         formats.plain_helpers.title('REFCOUNT TABLE')
         print(Fore.WHITE, end='')
         print(indent + "Cluster Size: " + str(self.cluster_size) +
-            " bytes\tCluster Bits: "+str(self.header.cluster_bits))
+            " bytes\tCluster Bits: "+str(self.header.attr['cluster_bits']))
         print(indent + "RefCount Table Offset: " +
-            self.header.refcount_table_offset)
+            self.header.attr['refcount_table_offset'])
         print(indent + "RefCount Table Clusters Occupied: " +
-            str(self.header.refcount_table_clusters))
+              str(self.header.attr['refcount_table_clusters']))
         if args.detailed:
             print(indent + "RefCount Table Entries: " + str(self.refcount_table_entries) + "\t\tPossible RefCount Table Entries: " +
-                str(self.header.refcount_table_clusters*self.cluster_size))
-            print(indent + "RefCount Bits: " + str(self.header.refcount_bits))
+                str(self.header.attr['refcount_table_clusters']*self.cluster_size))
+            print(indent + "RefCount Bits: " + str(self.header.attr['refcount_bits']))
             print(indent + "RefCount Block Entries: " +
                 str(self.refcount_block_entries))
         print(Style.RESET_ALL)
@@ -911,7 +933,7 @@ class Image:
             for refcount_table_entry_index in range(self.refcount_table_entries):
                 indent = "\t"
                 refcount_table_entry_offset = (
-                    int(self.header.refcount_table_offset[2:], 16) +
+                    int(self.header.attr['refcount_table_offset'][2:], 16) +
                     refcount_table_entry_index * 8)
                 self.file.seek(refcount_table_entry_offset, 0)
                 current_bytes = self.file.read(8)
@@ -1005,10 +1027,10 @@ class Image:
         indent = "\t"
         formats.plain_helpers.title('L1 TABLE')
         print(Fore.WHITE, end='')
-        print(indent + "L1 Table Offset: " + self.header.l1_table_offset)
+        print(indent + "L1 Table Offset: " + self.header.attr['l1_table_offset'])
         if args.detailed:
             print(indent + "Cluster Size: " + str(self.cluster_size) +
-                " bytes\tCluster Bits: "+str(self.header.cluster_bits))
+                  " bytes\tCluster Bits: "+str(self.header.attr['cluster_bits']))
             print(indent + "L1 Table Entries: " +
                 str(self.l1_table_entries) +
                 "\t\tPossible L1 Table Entries: " +
@@ -1040,7 +1062,7 @@ class Image:
                     if l1_table_entry == 0:
                         # UNUSED
                         comment = Fore.WHITE
-                    elif l1_table_entry & QCOW_L2_OFFSET_MASK <= self.physical_size:
+                    elif l1_table_entry & self.QCOW_L2_OFFSET_MASK <= self.physical_size:
                         # REFERENCED
                         comment = Fore.MAGENTA
                     else:
@@ -1103,9 +1125,11 @@ class Image:
                 print()
                 print(Style.RESET_ALL)
             elif l1_table_entry > 0:
+                if not self.l2_initialized:
+                    self.parse_l2_tables()
                 current_table = self.l2_tables[l1_table_index]
                 for l2_table_index in range(len(current_table)):
-                    l2_table_offset = l1_table_entry & QCOW_L2_OFFSET_MASK
+                    l2_table_offset = l1_table_entry & self.QCOW_L2_OFFSET_MASK
                     l2_table_entry_offset = int(
                         l2_table_offset +
                         l2_table_index * 8)
@@ -1143,6 +1167,7 @@ class Image:
 
     def plain_data(self, args):
         f_args = {}
+        # Parse provided address
         if args.address:
             try:
                 if '0x' in args.address:
@@ -1154,38 +1179,70 @@ class Image:
                 exit()
         else:
             f_args['start'] = 0
+        
+        #Set data read imcrement size
         if args.bytes:
             f_args['increment'] = 1
         elif args.sectors:
             f_args['increment'] = 512
         else:
             f_args['increment'] = self.cluster_size
+        
+        
         if args.all:
-            f_args['stop'] = int(f_args['start'] +
-                                (self.l1_table_size * self.l2_table_size *
-                                self.cluster_size) / f_args['increment'])
+            if args.physical_address:
+                f_args['stop'] = int(self.l1_table_size * self.l2_table_size *
+                                self.cluster_size)
+            else:
+                f_args['stop'] = self.physical_size
         else:
-            f_args['stop'] = int(f_args['start'] +
+            if args.physical_address:
+                f_args['stop'] = int(f_args['start'] +
+                                     args.number_of_chunks * f_args['increment'])
+            else:
+                f_args['stop'] = int(f_args['start'] +
                                 args.number_of_chunks * f_args['increment'])
         if not args.no_metadata:
-            print(args)
+            #print(args)
             formats.plain_helpers.title('DATA')
+        
+        f_args['physical_address'] = args.physical_address
+
+        # Retrieve data chunks
         data = self.read_data(f_args)
+
         raw_data = b''
+        previous_zeros = False
         for chunk in data:
             if args.raw:
                 raw_data += chunk['data']
-            else:
+            else:                    
                 if not args.no_metadata:
-                    print('\n')
-                    formats.plain_helpers.title(
-                        'Virtual Address: ' +
-                        format(chunk['metadata']['virtual_address'], '016x') +
-                        ' (' + format(chunk['metadata']['physical_offset'], '016x') +
-                        ')')
-                    print(Fore.WHITE + str(chunk['metadata']))
+                    if args.physical_address:
+                        formats.plain_helpers.title(
+                            'Phys Addr:' +
+                            format(chunk['metadata']['address'], '#016x') +
+                            ' / File Offset:' + format(chunk['metadata']['physical_offset'], '#016x'))
+                    else:
+                        if chunk['metadata']['l2']['descriptor_type'] == 0:
+                            chunk_compression = 'No'
+                        else:
+                            chunk_compression = 'Yes'
+                        formats.plain_helpers.title(
+                            'Virt Addr:' +
+                            format(chunk['metadata']['address'], '#016x') +
+                            ' / File Offset:' + format(chunk['metadata']['physical_offset'], '#016x') +
+                            ' / Compressed: ' + chunk_compression)
+                        #print(Fore.WHITE + str(chunk['metadata']))
                 if not args.no_data:
-                    print(Fore.MAGENTA + str(chunk['data']), end='')
+                    if all(v == 0 for v in chunk['data']):
+                        formats.plain_helpers.title('Empty (' + str(len(chunk['data'])) + ' Bytes)', filler='*', color=Fore.LIGHTRED_EX)
+                        previous_zeros = True
+                    else:
+                        formats.plain_helpers.data_table(
+                            chunk['metadata']['address'], chunk['data'])
+                        previous_zeros = False
+                        #print(Fore.MAGENTA + str(chunk['data']), end='')
         print(Style.RESET_ALL)
         if args.raw:
             print(raw_data)
@@ -1268,11 +1325,12 @@ class Image:
 
 
     def get_data(self, args, f_args={}):
-        if not self.l2_initialized:
-                self.parse_l2_tables()
-        if not self.refcount_blocks_initialized:
-                self.parse_refcount_blocks()
-        #if not args.no_metadata:
+        if not args.physical_address:
+            if not self.l2_initialized:
+                    self.parse_l2_tables()
+            if not self.refcount_blocks_initialized:
+                    self.parse_refcount_blocks()
+            #if not args.no_metadata:
         #    self.plain_header(args)
         self.plain_data(args)
 

@@ -4,7 +4,7 @@ Below is a list of required function to be provided by each disk format module.
 CLI Command             Corresponding module function
 info            ->      module.get_info
 map             ->      module.get_map
-snapshot        ->      module.get_snapshots
+snapshots        ->      module.get_snapshots
 header          ->      module.get_header
 tables          ->      module.get_tables
 data            ->      module.get_data
@@ -12,3 +12,4 @@ check           ->      module.get_check
 do -v
     mount       ->      module.mount
     unmount     ->      module.unmount
+    restore     ->      module.restore_snapshot

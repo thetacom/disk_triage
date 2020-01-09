@@ -1,5 +1,16 @@
 
 *.pyc
+*.cloop
+*.cow
+*.dmg
+*.img
+*.iso
 *.qcow
 *.qcow2
 *.qcow3
+*.raw
+*.vdi
+*.vhd
+*.vmdk
+*.vpc
+*.wim
