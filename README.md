@@ -28,17 +28,42 @@ pip install disk-triage
 # Usage
 
 ```bash
-./disk-triage.py [command] [options] filename
+./disk-triage.py [Global Options] [COMMAND] [Command Options] FILENAME
 ```
-### Example 1: Print basic disk image info to screen
+### Example 1: Output basic disk image info to screen
 ```bash
 ./disk-triage.py info disk.qcow
 ```
 
-### Example 2: Print all table entries including zeros to screen
+### Example 2: Output all table entries including zeros to screen
 ```bash
 ./disk-triage.py -z tables -a test.qcow
 ```
+### Example 3: Output first virtual data cluster to screen
+```bash
+./disk-triage.py data -S -n 5 test.qcow
+```
+### Example 4: Output two virtual data clusters starting at the provided address to screen
+```bash
+
+./disk-triage.py data -a 0x912c -n 2 test.qcow
+```
+### Example 5: Output first five virtual data sectors to screen
+```bash
+
+./disk-triage.py data -S -n 5 test.qcow
+```
+### Example 6: Output first five physical data clusters to screen
+```bash
+
+./disk-triage.py data -p -n 5 test.qcow
+```
+### Example 7: Output first virtual cluster as raw unformatted data
+```bash
+
+./disk-triage.py data -r test.qcow
+```
+
 ## Option Tree
 
 ```bash
