@@ -14,16 +14,17 @@ pip install disk-triage
 
 ### Supported
 
-- QCOW
-- QCOW2
-- QCOW3
+- RAW (.raw / .img / .dd / .iso / .loop)
+- QCOW (.qcow / .qcow2 / .qcow3)
+
 
 ### Planned
-- RAW
-- IMG
-- ISO
+- CLOOP
 - VHD
 - VMDK
+- VDI
+- DMG
+- WIM
 
 # Usage
 

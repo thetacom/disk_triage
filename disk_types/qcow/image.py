@@ -7,9 +7,10 @@ import json
 from collections import OrderedDict
 from colorama import Fore, Back, Style
 import output_formats as formats
-
+from ..common import *
 class Image:
-    QCOW_MAGIC = ((ord('Q') << 24) | (ord('F') << 16) | (ord('I') << 8) | 0xfb)
+    # QCOW_MAGIC = ((ord('Q') << 24) | (ord('F') << 16) | (ord('I') << 8) | 0xfb)
+    QCOW_MAGIC = 1363560955
 
     QCOW_CRYPT_NONE = 0
     QCOW_CRYPT_AES = 1
@@ -22,23 +23,35 @@ class Image:
     # depending on cluster size, compressed clusters can have a
     # smaller limit(64PB for up to 16k clusters, then ramps down to
     # 512TB for 2M clusters).
-    QCOW_MAX_CLUSTER_OFFSET = (1 << 56) - 1
+    
+    # QCOW_MAX_CLUSTER_OFFSET = (1 << 56) - 1
+    QCOW_MAX_CLUSTER_OFFSET = 72057594037927935
 
     # 8 MB refcount table is enough for 2 PB images at 64k cluster size
     # (128 GB for 512 byte clusters, 2 EB for 2 MB clusters)
-    QCOW_MAX_REFTABLE_SIZE = 8 * 1048576  # (8 * MiB)
+    # MiB = 1048576
+    
+    #QCOW_MAX_REFTABLE_SIZE = 8 * MiB
+    QCOW_MAX_REFTABLE_SIZE = 8388608
 
     # 32 MB L1 table is enough for 2 PB images at 64k cluster size
     # (128 GB for 512 byte clusters, 2 EB for 2 MB clusters)
-    QCOW_MAX_L1_SIZE = 32 * 1048576  # (32 * MiB)
+    # MiB = 1048576
+    
+    #QCOW_MAX_L1_SIZE = 32 * MiB
+    QCOW_MAX_L1_SIZE = 33554432
 
     # Allow for an average of 1k per snapshot table entry, should be plenty of
     # space for snapshot names and IDs * /
-    QCOW_MAX_SNAPSHOTS_SIZE = 1024 * QCOW_MAX_SNAPSHOTS
+    
+    # QCOW_MAX_SNAPSHOTS_SIZE = 1024 * QCOW_MAX_SNAPSHOTS
+    QCOW_MAX_SNAPSHOTS_SIZE = 67108864
 
     # Bitmap header extension constraints
     QCOW2_MAX_BITMAPS = 65535
-    QCOW2_MAX_BITMAP_DIRECTORY_SIZE = 1024 * QCOW2_MAX_BITMAPS
+    
+    # QCOW2_MAX_BITMAP_DIRECTORY_SIZE = 1024 * QCOW2_MAX_BITMAPS
+    QCOW2_MAX_BITMAP_DIRECTORY_SIZE = 67107840
 
     # L1 offset mask indicates the l2 offset portion of an l1 table entry
     # Bit Mask

@@ -226,10 +226,13 @@ def main(argv):
         exit(3)
     with open(args.file, 'rb') as disk_file:
         file_ext = os.path.splitext(args.file)[1][1:]
-        if file_ext in {'qcow','qcow2','qcow3'}:
+        if file_ext in {'loop','raw','img','iso','dd'}:
+            img = raw.Image(disk_file)
+            args.func(img, args)
+        elif file_ext in {'qcow','qcow2','qcow3', 'cow'}:
             img = qcow.Image(disk_file)
             args.func(img, args)
-        elif file_ext in {'raw', 'cloop', 'cow', 'img', 'iso', 'vdi', 'vhd', 'vmdk', 'vpc', 'wim', 'dmg'}:
+        elif file_ext in {'cloop', 'vdi', 'vhd', 'vmdk', 'vpc', 'wim', 'dmg'}:
             print("Not Implemented Yet.")
         else:
             print("Unsupported filetype: " + file_ext)

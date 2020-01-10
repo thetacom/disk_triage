@@ -1,12 +1,10 @@
-# import cloop
-# import cow
-# import dmg
-# import img
-# import iso
-from . import qcow
-# import raw
-# import vdi
-# import vhd
-# import vmdk
-# import vpc
-# import wim
+# from . import cloop
+# from . import dmg
+# from . import iso
+from . import raw # .raw / .img / .dd / .loop
+from . import qcow  # .cow / .qcow / .qcow2 / .qcow3
+# from . import vdi
+# from . import vhd # .vhd / .vhdx
+# from . import vmdk
+# from . import vpc
+# from . import wim
