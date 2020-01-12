@@ -803,19 +803,21 @@ class Image:
                             'start': byte_start,
                             'end': byte_end - 1}
                 else:
-                    attr = {'name': name, 'raw': 'Header too short (' + name + ')', 'value': 'None' +
-                            name + ')', 'description': 'Header too short (' + name + ')'}
+                    attr = {'name': name, 'raw': 'Header too short (' + name + ')', 'value': '0', 'description': 'Header too short (' + name + ')', 'start': 0,
+                            'end': 0}
             else:
                 attr = {'name': name, 'raw': 'Invalid attribute (' + name + ')',
-                        'value': 'None', 'description': 'Invalid attribute (' + name + ')'}
+                        'value': '0', 'description': 'Invalid attribute (' + name + ')', 'start': 0,
+                        'end': 0}
             return attr
 
         def comment(self, attr, value):
+            comment = Fore.RED + 'LOGIC ERROR'
             valid = Fore.GREEN + "VALID"
             invalid = Fore.RED + "INVALID"
             if attr == 'magic' and value == b'QFI\xfb':
                 comment = valid
-            elif attr == 'version' and value in [2, 3]:
+            elif attr == 'version' and value in [1, 2, 3]:
                 comment = valid
             elif attr == 'backing_file_offset':  # TODO: Add additional checks
                 if int(value[2:], 16) > 0:
@@ -882,36 +884,50 @@ class Image:
             elif attr == 'incompatible_features':  # TODO: Add additional checks
                 if self.attr['version'] < 3 and int(value, 2) > 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
+                elif self.attr['version'] < 3 and int(value, 2) == 0:
+                    comment = Fore.GREEN + 'UNSET'
                 else:
                     comment = valid
             elif attr == 'compatible_features':  # TODO: Add additional checks
                 if self.attr['version'] < 3 and int(value, 2) > 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
+                elif self.attr['version'] < 3 and int(value, 2) == 0:
+                    comment = Fore.GREEN + 'UNSET'
                 else:
                     comment = valid
             elif attr == 'autoclear_features':  # TODO: Add additional checks
                 if self.attr['version'] < 3 and int(value, 2) > 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
+                elif self.attr['version'] < 3 and int(value, 2) == 0:
+                    comment = Fore.GREEN + 'UNSET'
                 else:
                     comment = valid
             elif attr == 'refcount_order':
-                if self.attr['version'] < 3 and value != 4:
+                if self.attr['version'] < 3 and int(value, 2) != 0:
                     comment = Fore.RED + "VERSION 3+ ONLY"
+                elif self.attr['version'] < 3 and int(value, 2) == 0:
+                    comment = Fore.GREEN + 'UNSET'
                 elif self.attr['version'] >= 3 and value < 6 and value > 0:
                     comment = valid
                 else:
                     comment = invalid
             elif attr == 'header_length':
                 if self.attr['version'] >= 3:
-                    if value == 104:
+                    if int(value, 2) == 104:
                         comment = Fore.GREEN + "REGULAR HEADER"
-                    elif value > 104:
+                    elif int(value, 2) > 104:
                         self.img.file.seek(104)
                         next_header = self.img.file.read(4)
                         if int(next_header) > 0:
                             comment = Fore.MAGENTA + "EXTENDED HEADER"
                         else:
                             comment = Fore.RED + "INCONSISTENT EXTENDED HEADER"
+                else:
+                    if int(value, 2) == 0:
+                        comment = Fore.GREEN + 'UNSET'
+                    else:
+                        comment = Fore.RED + "VERSION 3+ ONLY"
+
             else:
                 comment = invalid
             return comment
