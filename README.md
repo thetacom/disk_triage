@@ -15,7 +15,7 @@ pip install disk-triage
 ### Supported
 
 - RAW (.raw / .img / .dd / .iso / .loop)
-- QCOW (.qcow / .qcow2 / .qcow3)
+- QCOW (.qcow / .qcow2 / .qcow3)  [QCOW Guide](https://github.com/thetacom/disk-triage/blob/master/docs/QCOW_Structure_Guide.md)
 
 
 ### Planned
