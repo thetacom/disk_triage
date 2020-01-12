@@ -2,14 +2,6 @@
 
 Disk-Triage is a Python tool for dissecting and analyzing disk image files. This tool is designed to be a command line utility.
 
-# Installation
-
-You can use pip to install Disk-Triage:
-
-```bash
-pip install disk-triage
-```
-
 ## Disk Formats
 
 ### Supported
