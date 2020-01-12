@@ -1,8 +1,15 @@
 #!python
-import os, sys, argparse, math, binascii
+import argparse
+import binascii
+import math
+import os
+import sys
 from collections import OrderedDict
-from colorama import Fore, Back, Style
+
+from colorama import Back, Fore, Style
+
 from disk_types import *
+
 # Output functions
 
 VERSION = "0.0.9"
@@ -61,7 +68,7 @@ def main(argv):
     # table_group = parser.add_argument_group('group')
     parser.add_argument('--version', action='version',
                         version='%(prog)s ' + VERSION)
-    parser.add_argument('-v', '--verbosity', type=int, default=0)
+    parser.add_argument('-v', '--verbose', type=int, default=0)
     parser.add_argument(
         '-f', '--format', metavar='plain',
         default='plain',
@@ -69,6 +76,8 @@ def main(argv):
     parser.add_argument(
         '-z', '--zeros', action='store_true',
         help='Output all values including empty entries (Do not suppress unused entries/clusters/blocks).')
+    parser.add_argument('-c', '--cluster_size', type=int, default=4096,
+        help='Specify cluster size for disk formats that support it.')
     subparsers = parser.add_subparsers()
 
     # Info command subparser
@@ -145,6 +154,7 @@ def main(argv):
     data_subparser.add_argument(
         '-d', '--detailed', action='store_true',
         help='Perform deep inspection of values and additional validations addresses and data.')
+    
     data_qty_group = data_subparser.add_mutually_exclusive_group()
     data_qty_group.add_argument(
         '-n', '--number_of_chunks', type=int, default=1,
@@ -160,9 +170,6 @@ def main(argv):
     data_chunk_type_group.add_argument(
         '-S', '--sectors', action='store_true',
         help='Output data in sector sized chunks.')
-    data_chunk_type_group.add_argument(
-        '-C', '--clusters', action='store_true',
-        help='(Default) Output data in cluster sized chunks.')
 
     data_set_group = data_subparser.add_mutually_exclusive_group()
     data_set_group.add_argument(
@@ -219,7 +226,7 @@ def main(argv):
         help='Filename of the disk image to be triaged.')
     args = parser.parse_args()
     print(Style.RESET_ALL)
-    if args.verbosity > 0:
+    if args.verbose:
         print(args)
     if not os.path.isfile(args.file):
         print("Invalid file")

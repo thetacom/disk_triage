@@ -10,12 +10,12 @@ def title(title, length=cols, filler='-', title_end='\n', color=Fore.YELLOW):
     if title_length < length:
         filler_length = (length - title_length) // 2
         filler_segment = color + filler * filler_length
-        print(filler_segment + title + filler_segment, end=title_end)
-        print(Style.RESET_ALL)
+        print('\n' + filler_segment + title + filler_segment, end=title_end)
     elif title_length == length:
-        print(color + title)
+        print('\n' + color + title)
     else:
-        print(color + title[:length - 3] + "...")
+        print('\n' + color + title[:length - 3] + "...")
+    print(Style.RESET_ALL)
 
 def table(data, column_widths = {}, column_labels = False, row_labels = False, row_justify="left"):
     if column_labels:

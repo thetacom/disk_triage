@@ -67,7 +67,7 @@ Each QCOW file begins with a header, in big endian format, as follows:
 |*00000000<--------Bits 55 to 9: L2 Table Offset-------->00000000|
 |================================================================|
 |   L2 Table (Must align to cluster boundary)                    |
-|       Location: Set by Bytes 40-47 of header                   |
+|       Location: Determined by corresponding L1 Table Entry     |
 |       Size: cluster size                                       |
 |----------------------------------------------------------------|
 |   L2 Table Entry                                               |
