@@ -2,14 +2,6 @@
 
 Disk-Triage is a Python tool for dissecting and analyzing disk image files. This tool is designed to be a command line utility.
 
-# Installation
-
-You can use pip to install Disk-Triage:
-
-```bash
-pip install disk-triage
-```
-
 ## Disk Formats
 
 ### Supported
@@ -146,40 +138,38 @@ optional arguments:
 
 ### Tables
 ```bash
-usage: disk-triage.py tables [-h] [-a] [-m] [-1] [-2] [-r] [-R] [-b] [-d] [-p]
+usage: disk-triage.py tables [-h] [-a] [-p] [-s] [-R] [-d] [-n]
 
 optional arguments:
-  -h, --help      show this help message and exit
-  -a, --all       Output all tables (RefCount, RefCount Blocks, L1, and L2).
-  -m, --main      Output primary tables (RefCount, and L1).
-  -1, --l1        Output L1 table entries.
-  -2, --l2        Output L2 tables for each L1 table entry.
-  -r, --refcount  Output RefCount table entries.
-  -R, --raw       Output array of raw entries from parsed table(s).
-  -b, --blocks    Output RefCount Blocks for each RefCount table entry.
-  -d, --detailed  Perform deep inspection of values and additional validations
-                  addresses and data.
-  -p, --possible  Include possible non-zero RefCount and L1 entries beyond
-                  entry count in header (Enumerates all entries up to cluster
-                  boundary).
+  -h, --help       show this help message and exit
+  -a, --all        Output all tables.
+  -p, --primary    Output primary allocation tables.
+  -s, --secondary  Output secondary allocation tables.
+  -R, --raw        Output array of raw entries from parsed table(s).
+  -d, --detailed   Perform deep inspection of values and additional
+                   validations addresses and data.
+  -n, --nonzero    Include possible non-zero entries beyond allocated in
+                   header (Enumerates all entries up to cluster boundary).
 ```
 
 ### Data
 
 ```bash
-usage: disk-triage.py data [-h] [-a 0xFFFFFFFFFFFFFFFF] [-H] [-d]
-                              [-n NUMBER_OF_CHUNKS | -A] [-B | -S] [-r | -0 | -m]
+usage: disk-triage.py data [-h] [-a 0xFFFFFFFFFFFFFFFF] [-p] [-H] [-d]
+                           [-n NUMBER_OF_CHUNKS | -A] [-B | -S] [-r | -0 | -m]
 
 optional arguments:
   -h, --help            show this help message and exit
   -a 0xFFFFFFFFFFFFFFFF, --address 0xFFFFFFFFFFFFFFFF
                         Starting virtual address of output.
+  -p, --physical_address
+                        (Specify the provided address is physical not virtual.
   -H, --human-readable  Output decoded data.
   -d, --detailed        Perform deep inspection of values and additional
                         validations addresses and data.
   -n NUMBER_OF_CHUNKS, --number_of_chunks NUMBER_OF_CHUNKS
                         Number of data chunks to output.
-  -A, --all             Number of data chunks to output.
+  -A, --all             Output all data within disk image.
   -B, --bytes           Output data in byte sized chunks.
   -S, --sectors         Output data in sector sized chunks.
   -r, --raw             Only a single block of raw data.
@@ -200,16 +190,16 @@ optional arguments:
   -l, --leaks         Check for leaked clusters.
 ```
 
-### Do (Not Implemented)
+### Do (Not Yet Implemented)
 ```bash
-usage: disk-triage.py do [-h] {mount} ...
+usage: disk-triage.py do [-h] {mount,unmount,restore} ...
 
 positional arguments:
-  {mount}
-    mount     Attempt to mount disk image file.
-  {unmount}
-    unmount   Attempt to unmount disk image file.
+  {mount,unmount,restore}
+    mount               Attempt to mount disk image file.
+    unmount             Attempt to unmount disk image file.
+    restore             Restore an existing snapshot.
 
 optional arguments:
-  -h, --help  show this help message and exit
+  -h, --help            show this help message and exit
 ```
