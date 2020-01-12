@@ -17,7 +17,7 @@ def title(title, length=cols, filler='-', title_end='\n', color=Fore.YELLOW):
         print('\n' + color + title[:length - 3] + "...")
     print(Style.RESET_ALL)
 
-def table(data, column_widths = {}, column_labels = False, row_labels = False, row_justify="left"):
+def table(data, column_widths = {}, column_labels = False, row_labels = False, row_justify=''):
     if column_labels:
         column_count = len(data[1])
     else:
@@ -68,10 +68,10 @@ def table_line(column_widths, border_color = Fore.WHITE):
     print(border_color + '+' + '-' * (sum(column_widths) + len(column_widths) - 1) + '+',end='')
     print(Style.RESET_ALL)
 
-def table_row(data, column_widths, justify='left', border_color = Fore.WHITE, field_color = Fore.WHITE):
+def table_row(data, column_widths, justify, border_color = Fore.WHITE, field_color = Fore.WHITE):
     print(border_color + "|", end='')
     ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
-    for field, column_width in zip(data, column_widths):
+    for i, (field, column_width) in enumerate(zip(data, column_widths)):
         field = str(field)
         field_length = len(ansi_escape.sub('', field))
         if field_length > column_width:
@@ -83,9 +83,17 @@ def table_row(data, column_widths, justify='left', border_color = Fore.WHITE, fi
                 padding = " " * ((column_width - field_length)//2)
                 field = padding + field + padding + " " * \
                     (column_width - (field_length + 2*len(padding)))
-            else: #Left and everything else
+            elif justify == 'left':
                 field = field + " " * \
                     (column_width - field_length)
+            else: #auto
+                if i == 0:
+                    field = field + " " * \
+                        (column_width - field_length)
+                else:
+                    padding = " " * ((column_width - field_length)//2)
+                    field = padding + field + padding + " " * \
+                        (column_width - (field_length + 2*len(padding)))
         print(field_color + field + border_color + '|', end='')
     print('')
     table_line(column_widths)

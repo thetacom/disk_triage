@@ -11,7 +11,6 @@ from colorama import Back, Fore, Style
 from disk_types import *
 
 # Output functions
-
 VERSION = "0.0.9"
 def check_format(args):
     if args.format in {'plain','json'}:
