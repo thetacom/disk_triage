@@ -179,10 +179,6 @@ class Image:
         self.l1_table_offset = self.header.attr['l1_table_offset']
         # TODO: Lookup backing file name if present
 
-        # Snapshots
-        # TODO: Parse snapshot table entries
-        # self.parse_snapshots()
-
         # Calculate additional useful parameters
         self.refcount_table_entries = int(
             self.header.attr['refcount_table_clusters'] * self.cluster_size /
@@ -1046,9 +1042,11 @@ class Image:
                             comment = Fore.RED
                         print("\t" + comment + hex(refcount_table_entry), end='')
                 else:
-                    print("TODO: Detailed not implemented yet")
+                    # TODO:
+                    print("Detailed not implemented yet")
         else:
-            print("TODO: Detailed not implemented yet")
+            # TODO:
+            print("Detailed not implemented yet")
         print(Style.RESET_ALL)
 
     def plain_refcount_blocks(self, args):
@@ -1095,8 +1093,6 @@ class Image:
                         # OTHER
                         comment = Fore.RED
                     print("\t" + comment + hex(refcount_block_entry), end='')
-            # else:
-            #    print("TODO: Detailed not implemented yet")
 
     def plain_l1_table(self, args):
         indent = "\t"
@@ -1144,7 +1140,8 @@ class Image:
                         comment = Fore.RED
                     print("\t" + comment + hex(l1_entry), end='')
             else:
-                print("TODO: Detailed not implemented yet")
+                # TODO:
+                print("Detailed not implemented yet")
         print(Style.RESET_ALL)
 
     def plain_l2_tables(self, args):
@@ -1194,7 +1191,8 @@ class Image:
                             print("\t" + comment +
                                   hex(l2_values['value']), end='')
                     else:
-                        print("TODO: Detailed not implemented yet")
+                        # TODO:
+                        print("Detailed not implemented yet")
             elif l1_entry == 0 and not args.zeros:
                 formats.plain_helpers.title(
                     '----NOT ALLOCATED----', color=Fore.LIGHTRED_EX)
@@ -1230,7 +1228,8 @@ class Image:
                             print("\t" + comment +
                                   hex(l2_values['value']), end='')
                     else:
-                        print("TODO: Detailed not implemented yet")
+                        # TODO:
+                        print("Detailed not implemented yet")
             print(Style.RESET_ALL)
 
     def plain_snapshots(self, args):
@@ -1239,9 +1238,9 @@ class Image:
         formats.plain_helpers.title('SNAPSHOTS')
         table_data = []
         table_data.append(['Snapshot Table Offset', Fore.BLUE +
-                           self.header.attr['snapshots_offset']])
+                        self.header.attr['snapshots_offset']])
         table_data.append(['Snapshot Count', Fore.BLUE +
-                           str(snapshot_count)])
+                        str(snapshot_count)])
         formats.plain_helpers.table(table_data, [35, 10])
 
         formats.plain_helpers.title('SNAPSHOT TABLE ENTRIES')
@@ -1359,7 +1358,7 @@ class Image:
             item_address = format(int(self.header.attr['snapshots_offset'], 16), '#016x') + ' (' + str(int(
                 self.header.attr['snapshots_offset'], 16)) + ')'
             table_data.append([item_address, color +
-                               str(self.cluster_size), color + 'Snapshot Table'])
+                            str(self.cluster_size), color + 'Snapshot Table'])
 
             # Add Snapshot Entries
             color = Fore.LIGHTRED_EX
@@ -1367,7 +1366,7 @@ class Image:
                 item_address = format(entry['l1_table_offset'], '#016x') + ' (' + str(
                     entry['l1_table_offset']) + ')'
                 table_data.append([item_address, color +
-                                   str(self.cluster_size), color + 'Snapshot L1 Table'])
+                                str(self.cluster_size), color + 'Snapshot L1 Table'])
 
         # Add L1 Table
         color = Fore.MAGENTA
