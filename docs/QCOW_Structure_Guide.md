@@ -5,15 +5,37 @@ This document is intended as a consolidated reference for the various versions o
 ## QCOW Header
 Each QCOW file begins with a header, in big endian format, as follows:
 
+### All Versions
+
 | Bytes | Name | Description | Note |
 |-|-|-|-|
 | 0 - 3 | `magic` | (uint32_t) QCOW magic string | **"QFI\xfb"** |
 | 4 - 7 | `version` | (uint32_t) Version number | Valid values are 2 and 3 |
 | 8 - 15 | `backing_file_offset` | (uint64_t) Offset into the image file at which the backing file name is stored (NB: The string is not null terminated). | 0 if the image doesn't have a backing file.|
 | 16 - 19 | `backing_file_size` | (uint32_t) Length of the backing file name in bytes. Must not be longer than 1023 bytes. | Undefined if the image doesn't have a backing file.|
+
+### Version 1 Only
+
+| Bytes | Name | Description | Note |
+|-|-|-|-|
+| 20 - 23 | `mtime` | (uint32_t) Ignored. | - |
+| 24 - 31 | `size` | (uint64_t) Virtual disk size in bytes. | Qemu has an implementation limit of 32 MB as the maximum L1 table size.  With a 2 MB cluster size, it is unable to populate a virtual cluster beyond 2 EB (61 bits); with a 512 byte cluster size, | it is unable to populate a virtual size larger than 128 GB (37 bits).  Meanwhile, L1/L2 table layouts limit an image to no more than 64 PB (56 bits) of populated clusters, and an image may hit other limits first (such as a file system's maximum size).|
+| 32 | `cluster_bits` | (uint8_t) Number of bits that are used for addressing an offset within a cluster (1 << cluster_bits is the cluster size). Must not be less than 9 (i.e. 512 byte clusters).||
+| 33 | `l2_bits` | (uint8_t) This field gives the number of bits used as an index withing the L2 table.||
+| 34 - 37 | `crypt_method` | (uint32_t) Disk Encryption Method | **0** for no encryption<br/>**1** for 128-bit AES encryption|
+| 38 - 39 | `UNKNOWN` | (unknown) Inserted to align properly align l1_table_offset | ***Generated files don't match other documentation***.|
+| 40 - 47 | `l1_table_offset` | (uint64_t) Offset into the image file at which the active L1 table starts. | Not cluster boundary aligned.|
+
+
+### Version 2+
+
+**Version 2** uses a more flexible table format, provides support for snapshots, and additional encryption options.
+
+| Bytes | Name | Description | Note |
+|-|-|-|-|
 | 20 - 23 | `cluster_bits` | (uint32_t) Number of bits that are used for addressing an offset within a cluster (1 << cluster_bits is the cluster size). Must not be less than 9 (i.e. 512 byte clusters).|Qemu as of today has an implementation limit of 2 MB as the maximum cluster size and won't be able to open images with larger cluster sizes.|
 | 24 - 31 | `size` | (uint64_t) Virtual disk size in bytes. | Qemu has an implementation limit of 32 MB as the maximum L1 table size.  With a 2 MB cluster size, it is unable to populate a virtual cluster beyond 2 EB (61 bits); with a 512 byte cluster size, | it is unable to populate a virtual size larger than 128 GB (37 bits).  Meanwhile, L1/L2 table layouts limit an image to no more than 64 PB (56 bits) of populated clusters, and an image may hit other limits first (such as a file system's maximum size).|
-| 32 - 35 | `crypt_method` | (uint32_t) | **0** for no encryption<br/>**1** for AES encryption<br/>**2** for LUKS encryption|
+| 32 - 35 | `crypt_method` | (uint32_t) Disk Encryption Method | **0** for no encryption<br/>**1** for AES encryption<br/>**2** for LUKS encryption|
 | 36 - 39 | `l1_size` | (uint32_t) Number of entries in the active L1 table|
 | 40 - 47 | `l1_table_offset` | (uint64_t) Offset into the image file at which the active L1 table starts. | Must be aligned to a cluster boundary.|
 | 48 - 55 | `refcount_table_offset` | (uint64_t)  Offset into the image file at which the refcount table starts. | Must be aligned to a cluster boundary.|
@@ -21,7 +43,9 @@ Each QCOW file begins with a header, in big endian format, as follows:
 | 60 - 63 | `nb_snapshots` | (uint32_t) Number of snapshots contained in the image |
 | 64 - 71 | `snapshots_offset` | (uint64_t) Offset into the image file at which the snapshot table starts. | Must be aligned to a cluster boundary. |
 
-*For **version 3** or higher, the header has the following additional fields. For **version 2**, the values are assumed to be zero, unless specified otherwise in the description of a field.*
+### Version 3+
+
+For **version 3** or higher, the header has the following additional fields. For **version 2**, the values are assumed to be zero, unless specified otherwise in the description of a field.
 
 | Bytes | Name | Description | Note |
 |-|-|-|-|
@@ -436,6 +460,8 @@ The algorithms used for encryption vary depending on the method
    input tweak.
 
 ## References
+https://people.gnome.org/~markmc/qcow-image-format-version-1.html
+
 https://people.gnome.org/~markmc/qcow-image-format.html
 
 https://github.com/qemu/qemu/blob/master/docs/interop/qcow2.txt

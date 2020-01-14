@@ -1,5 +1,6 @@
 import binascii
 import json
+import math
 import os
 import sys
 import xml
@@ -170,35 +171,57 @@ class Image:
         self.name = os.path.basename(self.file.name)
         self.physical_size = os.path.getsize(self.file.name)
         self.header = Image.Header(self)
+        self.version = self.header.attr['version']
+        if self.version == 1:
+            self.virtual_size = self.header.attr['size']
+            self.cluster_size = 1 << self.header.attr['cluster_bits']
+            self.l1_table_offset = self.header.attr['l1_table_offset']
+            self.l2_table_size = self.l2_size = 1 << self.header.attr['l2_bits']
+            # Specify segments of virtual address
+            self.cluster_address_bits = self.header.attr['cluster_bits']
+            self.l2_address_bits = self.header.attr['l2_bits']
+            self.l1_address_bits = 64 - self.l2_address_bits -\
+                self.cluster_address_bits
+            
+            # Set bit masks for quicker address parsing
+            self.l1_address_mask = int('1'*self.l1_address_bits + '0' * self.l2_address_bits + '1' * self.cluster_address_bits, 2)
+            self.l2_address_mask = int('0'*self.l1_address_bits + '1' * self.l2_address_bits + '0' * self.cluster_address_bits, 2)
+            self.cluster_address_mask = int('0'*self.l1_address_bits + '0' * self.l2_address_bits + '1' * self.cluster_address_bits, 2)
 
-        # Map key header attributes to image object
-        self.virtual_size = self.header.attr['size']
-        self.cluster_size = self.header.attr['cluster_size']
-        self.refcount_table_offset = self.header.attr['refcount_table_offset']
-        self.l1_table_entries = self.l1_entries = self.header.attr['l1_entries']
-        self.l1_table_offset = self.header.attr['l1_table_offset']
-        # TODO: Lookup backing file name if present
+            self.l1_table_entries = self.l1_entries = 1 << self.l1_address_bits
+            # ceiling (disk_size / (cluster_size * l2_size))
+            self.l1_table_size = math.ceil(
+                self.virtual_size / (self.cluster_size * self.l2_size))
 
-        # Calculate additional useful parameters
-        self.refcount_table_entries = int(
-            self.header.attr['refcount_table_clusters'] * self.cluster_size /
-            self.QCOW_REFCOUNT_ENTRY_SIZE)
+        elif self.version >= 2:
+            # Map key header attributes to image object
+            self.virtual_size = self.header.attr['size']
+            self.cluster_size = self.header.attr['cluster_size']
+            self.refcount_table_offset = self.header.attr['refcount_table_offset']
+            self.l1_table_entries = self.l1_entries = self.header.attr['l1_entries']
+            self.l1_table_offset = self.header.attr['l1_table_offset']
+            # TODO: Lookup backing file name if present
 
-        # refcount_block_entries = (cluster_size * 8 / refcount_bits)
-        self.refcount_block_entries = int(
-            self.cluster_size * 8 / self.header.attr['refcount_bits'])
-        self.refcount_block_size = 1 << self.header.attr['refcount_order'] >> 3
-        self.l2_table_size = self.l2_size = 1 << self.header.attr['cluster_bits'] >> 3
-        self.l1_table_size = int(
-            int((self.l1_entries * self.QCOW_L1_ENTRY_SIZE / self.cluster_size+1)) *
-            (self.cluster_size / self.QCOW_L1_ENTRY_SIZE))
-        # Specify segments of virtual address
-        self.cluster_address_bits = self.header.attr['cluster_bits']
-        self.l2_address_bits = self.header.attr['cluster_bits'] - 3
-        self.l1_address_bits = 64 - self.l2_address_bits -\
-            self.cluster_address_bits
+            # Calculate additional useful parameters
+            self.refcount_table_entries = int(
+                self.header.attr['refcount_table_clusters'] * self.cluster_size /
+                self.QCOW_REFCOUNT_ENTRY_SIZE)
 
-        #self.refcount_blocks = self.parse_refcount_blocks()
+            # refcount_block_entries = (cluster_size * 8 / refcount_bits)
+            self.refcount_block_entries = int(
+                self.cluster_size * 8 / self.header.attr['refcount_bits'])
+            self.refcount_block_size = 1 << self.header.attr['refcount_order'] >> 3
+            self.l2_table_size = self.l2_size = 1 << self.header.attr['cluster_bits'] >> 3
+            self.l1_table_size = int(
+                int((self.l1_entries * self.QCOW_L1_ENTRY_SIZE / self.cluster_size+1)) *
+                (self.cluster_size / self.QCOW_L1_ENTRY_SIZE))
+            # Specify segments of virtual address
+            self.cluster_address_bits = self.header.attr['cluster_bits']
+            self.l2_address_bits = self.header.attr['cluster_bits'] - 3
+            self.l1_address_bits = 64 - self.l2_address_bits -\
+                self.cluster_address_bits
+
+            #self.refcount_blocks = self.parse_refcount_blocks()
 
     def get_refcount(self, offset):
         refcount_block_index = (offset >> self.header.attr['cluster_bits']) % \
@@ -378,14 +401,20 @@ class Image:
         return self.snapshot_table
 
     def parse_address(self, virtual_address):
-        l1_index = virtual_address >> (64 - self.l1_address_bits)
-        l2_index = (virtual_address >> self.cluster_address_bits) % \
-            self.l2_table_size
-        partial_cluster_offset = virtual_address % self.cluster_size
+        if self.version == 1:
+            l1_index = virtual_address >> (64 - self.l1_address_bits)
+            l2_index = (virtual_address & self.l2_address_mask) >> self.cluster_address_bits
+            partial_cluster_offset = virtual_address & self.cluster_address_mask
+        else:
+            l1_index = virtual_address >> (64 - self.l1_address_bits)
+            l2_index = (virtual_address >> self.cluster_address_bits) % \
+                self.l2_table_size
+            partial_cluster_offset = virtual_address % self.cluster_size
+            
         return {
-            'l1_index': l1_index,
-            'l2_index': l2_index,
-            'partial_cluster_offset': partial_cluster_offset}
+                'l1_index': l1_index,
+                'l2_index': l2_index,
+                'partial_cluster_offset': partial_cluster_offset}
 
     def v_address_to_p_offset(self, virtual_address):
         return self.get_address_metadata(
@@ -632,14 +661,54 @@ class Image:
         pass
 
     def comment(self, attr, value):
-        if attr in Image.Header.structure:
+        if attr in self.header.structure:
             return self.header.comment(attr, value)
         else:
-            return Fore.RED + "INVALID" + Style.RESET_ALL
+            return Fore.LIGHTBLACK_EX + "N/A" + Style.RESET_ALL
 
     class Header:
         # 'header attribute name': [attr_offset, attr_size, 'description', 'type']
-        structure = {
+        v1_structure = {
+            'magic': [0, 4, 'QCOW Magic String (QFI\\xfb)', 'string'],
+            'version': [4, 4, 'QCOW Version', 'int'],
+            'backing_file_offset': [
+                8, 8,
+                'Offset to backing file name',
+                'address'],
+            'backing_file_size': [
+                16, 4,
+                'Size of backing file name in bytes',
+                'int'],
+            'mtime': [
+                20, 4,
+                'Ignored',
+                'int'],
+            'size': [
+                24, 8,
+                'Virtual Disk Size in bytes',
+                'int'],
+            'cluster_bits': [
+                32, 1,
+                'Cluster Bits',
+                'int'],
+            'l2_bits': [
+                33, 1,
+                'L2 Bits',
+                'int'],
+            'crypt_method': [
+                34, 4,
+                'Encryption (0-None,1-128-bit AES)',
+                'int'],
+            'UNKNOWN': [
+                38, 2,
+                'UNKNOWN',
+                'int'], 
+            'l1_table_offset': [
+                40, 8,
+                'Offset to L1 Table',
+                'address'],
+        }
+        v2_structure = {
             'magic': [0, 4, 'QCOW Magic String (QFI\\xfb)', 'string'],
             'version': [4, 4, 'QCOW Version', 'int'],
             'backing_file_offset': [
@@ -714,15 +783,21 @@ class Image:
             self.img.file.seek(0)
             self.attr = {}
             self.attr['magic'] = self.img.file.read(
-                Image.Header.structure['magic'][1])
+                Image.Header.v1_structure['magic'][1])
             self.attr['version'] = int(self.img.file.read(
-                Image.Header.structure['version'][1]).hex(), 16)
+                Image.Header.v1_structure['version'][1]).hex(), 16)
+            if int(self.attr['version']) == 1:
+                self.structure = Image.Header.v1_structure
+            elif int(self.attr['version']) >= 2:
+                self.structure = Image.Header.v2_structure
             if int(self.attr['version']) >= 3:
                 self.img.file.seek(100)
                 self.attr['header_length'] = int(img.file.read(
-                    Image.Header.structure['header_length'][1]).hex(), 16)
-            else:
+                    self.structure['header_length'][1]).hex(), 16)
+            elif int(self.attr['version']) == 2:
                 self.attr['header_length'] = 72
+            else:
+                self.attr['header_length']  = 48
             self.img.file.seek(0)
             self.raw = self.img.file.read(self.attr['header_length'])
             # Parse additional parameters
@@ -733,6 +808,8 @@ class Image:
             self.attr['cluster_bits'] = self.get_by_name(
                 'cluster_bits')['value']
             self.attr['cluster_size'] = 1 << self.attr['cluster_bits']
+            self.attr['l2_bits'] = self.get_by_name(
+                'l2_bits')['value']
             self.attr['size'] = self.get_by_name(
                 'size')['value']
             self.attr['crypt_method'] = self.get_by_name(
@@ -780,29 +857,29 @@ class Image:
         def get_by_name(self, name):
             attr_raw = b''
             attr_value = 0
-            if name in Image.Header.structure:
-                if Image.Header.structure[name][0] < self.attr['header_length']:
-                    byte_start = Image.Header.structure[name][0]
-                    byte_end = Image.Header.structure[name][0] + \
-                        Image.Header.structure[name][1]
+            if name in self.structure:
+                if self.structure[name][0] < self.attr['header_length']:
+                    byte_start = self.structure[name][0]
+                    byte_end = self.structure[name][0] + \
+                        self.structure[name][1]
                     attr_raw = self.raw[byte_start:byte_end].hex()
-                    if Image.Header.structure[name][3] == 'int':
+                    if self.structure[name][3] == 'int':
                         attr_value = int(attr_raw, 16)
-                    elif Image.Header.structure[name][3] == 'bin':
+                    elif self.structure[name][3] == 'bin':
                         attr_value = bin(int(attr_raw, 16))
-                    elif Image.Header.structure[name][3] == 'address':
+                    elif self.structure[name][3] == 'address':
                         attr_value = str.format('0x{:X}', int(attr_raw, 16))
                     else:
                         attr_value = binascii.unhexlify(attr_raw)
                     attr = {'name': name, 'raw': attr_raw, 'value': attr_value,
-                            'description': Image.Header.structure[name][2],
+                            'description': self.structure[name][2],
                             'start': byte_start,
                             'end': byte_end - 1}
                 else:
                     attr = {'name': name, 'raw': 'Header too short (' + name + ')', 'value': '0', 'description': 'Header too short (' + name + ')', 'start': 0,
                             'end': 0}
             else:
-                attr = {'name': name, 'raw': 'Invalid attribute (' + name + ')',
+                attr = {'name': name, 'raw': 'Invalid attribute',
                         'value': '0', 'description': 'Invalid attribute (' + name + ')', 'start': 0,
                         'end': 0}
             return attr
@@ -908,10 +985,12 @@ class Image:
                 else:
                     comment = invalid
             elif attr == 'header_length':
-                if self.attr['version'] >= 3:
-                    if int(value, 2) == 104:
+                if self.attr['version'] == 1:
+                        comment = Fore.GREEN + 'VERSION 2+ ONLY'
+                elif self.attr['version'] >= 3:
+                    if value == 104:
                         comment = Fore.GREEN + "REGULAR HEADER"
-                    elif int(value, 2) > 104:
+                    elif value > 104:
                         self.img.file.seek(104)
                         next_header = self.img.file.read(4)
                         if int(next_header) > 0:
@@ -921,11 +1000,9 @@ class Image:
                 else:
                     if int(value, 2) == 0:
                         comment = Fore.GREEN + 'UNSET'
-                    else:
-                        comment = Fore.RED + "VERSION 3+ ONLY"
-
             else:
-                comment = invalid
+                comment = Fore.BLUE + 'UNKNOWN'
+                #comment = invalid
             return comment
 
     def plain_info(self, args):
@@ -933,20 +1010,22 @@ class Image:
         table_data = []
         table_data.append(['Filename', Fore.BLUE + self.name])
         table_data.append(['Physical Size', Fore.MAGENTA +
-                           str(self.physical_size) + " bytes"])
+                           str(self.physical_size) + " byte(s)"])
         table_data.append(['Virtual Size', Fore.MAGENTA +
-                           str(self.virtual_size) + " bytes"])
+                           str(self.virtual_size) + " byte(s)"])
         table_data.append(['Cluster Size', Fore.MAGENTA +
-                           str(self.cluster_size) + " bytes"])
+                           str(self.cluster_size) + " byte(s)"])
         if args.detailed:
-            table_data.append(
-                ['RefCount Table Entries', Fore.LIGHTMAGENTA_EX + str(self.refcount_table_entries)])
-            table_data.append(
-                ['RefCount Block Entries', Fore.LIGHTMAGENTA_EX + str(self.refcount_block_entries)])
             table_data.append(
                 ['L1 Table Size', Fore.LIGHTMAGENTA_EX + str(self.l1_table_size)])
             table_data.append(
                 ['L2 Table Size', Fore.LIGHTMAGENTA_EX + str(self.l2_table_size)])
+            if self.version >= 2:
+                table_data.append(
+                    ['RefCount Table Entries', Fore.LIGHTMAGENTA_EX + str(self.refcount_table_entries)])
+                table_data.append(
+                    ['RefCount Block Entries', Fore.LIGHTMAGENTA_EX + str(self.refcount_block_entries)])
+
         formats.plain_helpers.table(table_data, [25, 45])
 
     def json_info(self, args):
@@ -956,10 +1035,12 @@ class Image:
         info['virtual_size'] = self.virtual_size
         info['cluster_size'] = self.cluster_size
         if args.detailed:
-            info['refcount_table_entries'] = self.refcount_table_entries
-            info['refcount_block_entries'] = self.refcount_block_entries
             info['l1_table_size'] = self.l1_table_size
             info['l2_table_size'] = self.l2_table_size
+            if self.version >= 2:
+                info['refcount_table_entries'] = self.refcount_table_entries
+                info['refcount_block_entries'] = self.refcount_block_entries
+
         output = OrderedDict()
         output['info'] = info
         return json.dumps(output, indent=2)
@@ -970,7 +1051,7 @@ class Image:
                         'Status', 'Description']
         table_data = []
         table_data.append(table_labels)
-        for key in Image.Header.structure:
+        for key in self.header.structure:
             attr = self.header.get_by_name(key)
             b = str(attr['start']) + '-' + str(attr['end'])
             r = Fore.CYAN + attr['raw']
@@ -1233,6 +1314,9 @@ class Image:
             print(Style.RESET_ALL)
 
     def plain_snapshots(self, args):
+        if self.version == 1:
+            print("Unsupported in QCOW Version 1")
+            exit()
         indent = "\t"
         snapshot_count = self.header.attr['nb_snapshots']
         formats.plain_helpers.title('SNAPSHOTS')
@@ -1282,10 +1366,10 @@ class Image:
 
         if args.all:
             if args.physical_address:
-                f_args['stop'] = int(self.l1_table_size * self.l2_table_size *
-                                     self.cluster_size)
-            else:
                 f_args['stop'] = self.physical_size
+            else:
+                f_args['stop'] = self.virtual_size#int(self.l1_table_size * self.l2_table_size *
+                                 #    self.cluster_size)
         else:
             if args.physical_address:
                 f_args['stop'] = int(f_args['start'] +
@@ -1300,17 +1384,23 @@ class Image:
         f_args['physical_address'] = args.physical_address
 
         # Retrieve data chunks
-        data = self.read_data(f_args)
+        #data = self.read_data(f_args)
 
         raw_data = b''
         previous_zeros = False
-        for chunk in data:
+        for address in range(
+                f_args['start'],
+                f_args['stop'],
+                f_args['increment']):
+            #results.append(function(address, f_args)
+            chunk = self.read_range(address, f_args)
+        #for chunk in data:
             if args.raw:
                 raw_data += chunk['data']
             else:
                 if chunk['metadata']['physical_offset'] > 0 or args.physical_address:
                     all_zeros = all(v == 0 for v in chunk['data'])
-                    if not all_zeros and not args.zeros:
+                    if not all_zeros or not args.zeros:
                         if not args.no_metadata:
                             if args.physical_address:
                                 formats.plain_helpers.title(
@@ -1330,7 +1420,7 @@ class Image:
                         if not args.no_data:
                             if all_zeros:
                                 formats.plain_helpers.title(
-                                    'Empty (' + str(len(chunk['data'])) + ' Bytes)', filler='*', color=Fore.LIGHTRED_EX)
+                                    'Empty (' + str(len(chunk['data'])) + ' Byte(s)', filler='*', color=Fore.LIGHTRED_EX)
                                 previous_zeros = True
                             else:
                                 formats.plain_helpers.data_table(
@@ -1352,21 +1442,22 @@ class Image:
         table_data.append(
             [format(0, '#016x') + ' (0)', self.header.attr['header_length'], 'Header'])
 
-        if int(self.header.attr['snapshots_offset'], 16) != 0:
-            # Add Snaptshot Table
-            color = Fore.LIGHTRED_EX
-            item_address = format(int(self.header.attr['snapshots_offset'], 16), '#016x') + ' (' + str(int(
-                self.header.attr['snapshots_offset'], 16)) + ')'
-            table_data.append([item_address, color +
-                            str(self.cluster_size), color + 'Snapshot Table'])
-
-            # Add Snapshot Entries
-            color = Fore.LIGHTRED_EX
-            for entry in self.get_snapshot_table():
-                item_address = format(entry['l1_table_offset'], '#016x') + ' (' + str(
-                    entry['l1_table_offset']) + ')'
+        if self.version > 1:
+            if int(self.header.attr['snapshots_offset'], 16) != 0:
+                # Add Snaptshot Table
+                color = Fore.LIGHTRED_EX
+                item_address = format(int(self.header.attr['snapshots_offset'], 16), '#016x') + ' (' + str(int(
+                    self.header.attr['snapshots_offset'], 16)) + ')'
                 table_data.append([item_address, color +
-                                str(self.cluster_size), color + 'Snapshot L1 Table'])
+                                str(self.cluster_size), color + 'Snapshot Table'])
+
+                # Add Snapshot Entries
+                color = Fore.LIGHTRED_EX
+                for entry in self.get_snapshot_table():
+                    item_address = format(entry['l1_table_offset'], '#016x') + ' (' + str(
+                        entry['l1_table_offset']) + ')'
+                    table_data.append([item_address, color +
+                                    str(self.l1_table_size), color + 'Snapshot L1 Table'])
 
         # Add L1 Table
         color = Fore.MAGENTA
@@ -1374,22 +1465,6 @@ class Image:
             self.header.attr['l1_table_offset'], 16)) + ')'
         table_data.append([item_address, color +
                            str(self.cluster_size), color + 'L1 Table'])
-
-        # Add RefCount Table
-        color = Fore.CYAN
-        item_address = format(int(self.header.attr['refcount_table_offset'], 16), '#016x') + ' (' + str(int(
-            self.header.attr['refcount_table_offset'], 16)) + ')'
-        table_data.append([item_address, color +
-                           str(self.cluster_size), color + 'RefCount Table'])
-
-        # Add RefCount Blocks
-        color = Fore.LIGHTCYAN_EX
-        for refcount_index, refcount_block_offset in enumerate(self.get_refcount_table()):
-            if refcount_block_offset:
-                item_address = format(
-                    refcount_block_offset, '#016x') + ' (' + str(refcount_block_offset) + ')'
-                table_data.append(
-                    [item_address, color + str(self.cluster_size), color + 'RefCount Block #' + str(refcount_index)])
 
         # Add L2 Tables
         color = Fore.LIGHTMAGENTA_EX
@@ -1399,7 +1474,24 @@ class Image:
                 item_address = format(l2_offset, '#016x') + \
                     ' (' + str(l2_offset) + ')'
                 table_data.append(
-                    [item_address, color + str(self.cluster_size), color + 'L2 Table #' + str(l1_index)])
+                    [item_address, color + str(self.l2_table_size), color + 'L2 Table #' + str(l1_index)])
+
+        if self.version > 1:
+            # Add RefCount Table
+            color = Fore.CYAN
+            item_address = format(int(self.header.attr['refcount_table_offset'], 16), '#016x') + ' (' + str(int(
+                self.header.attr['refcount_table_offset'], 16)) + ')'
+            table_data.append([item_address, color +
+                            str(self.cluster_size), color + 'RefCount Table'])
+
+            # Add RefCount Blocks
+            color = Fore.LIGHTCYAN_EX
+            for refcount_index, refcount_block_offset in enumerate(self.get_refcount_table()):
+                if refcount_block_offset:
+                    item_address = format(
+                        refcount_block_offset, '#016x') + ' (' + str(refcount_block_offset) + ')'
+                    table_data.append(
+                        [item_address, color + str(self.cluster_size), color + 'RefCount Block #' + str(refcount_index)])
 
         if args.detailed:
             # Add Data
@@ -1414,8 +1506,8 @@ class Image:
                         table_data.append([item_address, color + str(self.cluster_size),
                                            color + 'Data Block ' + str(l1_index) + '-' + str(l2_index)])
         # Sort data by offset
-        table_data.sort()
-        #table_data.sort(key = lambda x: x[0])
+        #table_data.sort()
+        table_data.sort(key = lambda x: x[0])
         table = []
         table.append(table_labels)
         table += table_data
@@ -1424,7 +1516,8 @@ class Image:
     def get_info(self, args):
         if args.format == 'plain':
             self.plain_info(args)
-            self.plain_header(args)
+            if args.all or args.detailed:
+                self.plain_header(args)
             if args.all:
                 self.plain_refcount_table(args)
                 self.plain_refcount_blocks(args)
@@ -1454,17 +1547,20 @@ class Image:
 
     def get_tables(self, args):
         if args.format == 'plain':
-            if args.all or args.primary or not (args.all or args.primary or args.secondary):
-                if args.raw:
-                    print(self.get_refcount_table())
-                else:
-                    self.plain_refcount_table(args)
-            if args.all or args.secondary:
-                if args.raw:
-                    print(self.get_refcount_blocks())
-                else:
-                    self.plain_refcount_blocks(args)
+            # For version 2+ only
+            if self.version > 1:
+                if args.all or args.primary or not (args.all or args.primary or args.secondary):
+                    if args.raw:
+                        print(self.get_refcount_table())
+                    else:
+                        self.plain_refcount_table(args)
+                if args.all or args.secondary:
+                    if args.raw:
+                        print(self.get_refcount_blocks())
+                    else:
+                        self.plain_refcount_blocks(args)
 
+            # L1 and L2 for all versions
             if args.all or args.primary or not (args.all or args.primary or args.secondary):
                 if args.raw:
                     print(self.get_l1_table())

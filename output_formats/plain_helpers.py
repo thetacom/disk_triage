@@ -55,7 +55,7 @@ def table_header(labels, column_count, column_widths, row_labels = False, border
     for label, column_width in zip(labels, label_widths):
         label_length = len(ansi_escape.sub('', label))
         if label_length > column_width:
-            label = label[:column_width-3] + '...'
+            label = label[:column_width - 3] + '...'
         else:
             padding = ' ' * ((column_width - label_length)//2)
             label = padding + Fore.WHITE + label + padding + ' ' * \
@@ -75,7 +75,7 @@ def table_row(data, column_widths, justify, border_color = Fore.WHITE, field_col
         field = str(field)
         field_length = len(ansi_escape.sub('', field))
         if field_length > column_width:
-            field = field[:column_width-3] + '...'
+            field = field[:column_width - 3] + '...'
         else:
             if justify == 'right':
                 field = " " * (column_width - field_length + field)
