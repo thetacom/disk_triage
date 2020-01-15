@@ -61,23 +61,23 @@ Disk-Triage is a Python tool for dissecting and analyzing disk image files. This
 
 ```bash
 usage: disk-triage.py [-h] [--version] [-v VERBOSITY] [-j] [-z]
-                      {info,map,snapshots,header,tables,data,check,do} ...
+                      {info,map,snapshots,metadata,tables,data,check,do} ...
                       FILE
 
 Perform various low level triage functions on the provided disk image file.
 
 positional arguments:
-  {info,map,snapshots,header,tables,data,check,do}
-    info                Output header and all tables from the disk image
+  {info,map,snapshots,metadata,tables,data,check,do}
+    info                Output metadata and all tables from the disk image
                         file.
     map                 Output a visual block depiction of the disk image
                         file.
     snapshots           Output a visual block depiction of the disk image
                         file.
-    header              Output header of disk image file.
+    metadata            Output metadata (attributes/header/trailer) of disk image file.
     tables              Output file tables.
     data                Output cluster meta-data of disk image file.
-    check               Output header of disk image file.
+    check               Perform consistency checks on disk image file.
     do                  Various command shortcuts for manipulating a disk
                         image file.
   FILE                  Filename of the disk image to be triaged.
@@ -126,9 +126,9 @@ optional arguments:
                   addresses and data.
 ```
 
-###  Header
+###  Metadata
 ```bash
-usage: disk-triage.py header [-h] [-d]
+usage: disk-triage.py metadata [-h] [-d]
 
 optional arguments:
   -h, --help      show this help message and exit
@@ -148,8 +148,7 @@ optional arguments:
   -R, --raw        Output array of raw entries from parsed table(s).
   -d, --detailed   Perform deep inspection of values and additional
                    validations addresses and data.
-  -n, --nonzero    Include possible non-zero entries beyond allocated in
-                   header (Enumerates all entries up to cluster boundary).
+  -n, --nonzero    Include possible non-zero entries beyond those marked as allocated (Enumerates all entries up to virtual data boundary).
 ```
 
 ### Data
@@ -160,7 +159,7 @@ usage: disk-triage.py data [-h] [-a 0xFFFFFFFFFFFFFFFF] [-p] [-H] [-d]
 
 optional arguments:
   -h, --help            show this help message and exit
-  -a 0xFFFFFFFFFFFFFFFF, --address 0xFFFFFFFFFFFFFFFF
+  -A 0xFFFFFFFFFFFFFFFF, --address 0xFFFFFFFFFFFFFFFF
                         Starting virtual address of output.
   -p, --physical_address
                         (Specify the provided address is physical not virtual.
@@ -169,7 +168,7 @@ optional arguments:
                         validations addresses and data.
   -n NUMBER_OF_CHUNKS, --number_of_chunks NUMBER_OF_CHUNKS
                         Number of data chunks to output.
-  -A, --all             Output all data within disk image.
+  -a, --all             Output all data within disk image.
   -B, --bytes           Output data in byte sized chunks.
   -S, --sectors         Output data in sector sized chunks.
   -r, --raw             Only a single block of raw data.

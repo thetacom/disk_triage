@@ -144,7 +144,7 @@ def main(argv):
     data_subparser = subparsers.add_parser(
         'data', help='Output cluster meta-data of disk image file.')
     data_subparser.add_argument(
-        '-a', '--address', metavar='0xFFFFFFFFFFFFFFFF',
+        '-A', '--address', metavar='0xFFFFFFFFFFFFFFFF',
         default='0x0000000000000000',
         help='Starting virtual address of output.')
     data_subparser.add_argument(
@@ -162,7 +162,7 @@ def main(argv):
         '-n', '--number_of_chunks', type=int, default=1,
         help='Number of data chunks to output.')
     data_qty_group.add_argument(
-        '-A', '--all', action='store_true',
+        '-a', '--all', action='store_true',
         help='Output all data within disk image.')
 
     data_chunk_type_group = data_subparser.add_mutually_exclusive_group()
