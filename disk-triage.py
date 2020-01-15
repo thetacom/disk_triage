@@ -37,9 +37,9 @@ def get_snapshots(img, args):
     img.get_snapshots(args)
 
 
-def get_header(img, args):
+def get_metadata(img, args):
     check_format(args)
-    img.get_header(args)
+    img.get_metadata(args)
 
 def get_tables(img, args):
     check_format(args)
@@ -109,13 +109,13 @@ def main(argv):
         help='Perform deep inspection of values and additional validations addresses and data.')
     snapshot_subparser.set_defaults(func=get_snapshots)
 
-    # Header command subparser
-    header_subparser = subparsers.add_parser(
-        'header', help='Output header of disk image file.')
-    header_subparser.add_argument(
+    # Metadata command subparser
+    metadata_subparser = subparsers.add_parser(
+        'metadata', help='Output metadata (attributes/header/trailer) of disk image file.')
+    metadata_subparser.add_argument(
         '-d', '--detailed', action='store_true',
-        help='Perform deep inspection of values and additional validations addresses and data.')
-    header_subparser.set_defaults(func=get_header)
+        help='Perform deep inspection of values and additional validations for addresses and data.')
+    metadata_subparser.set_defaults(func=get_metadata)
 
     # Tables command subparser
     tables_subparser = subparsers.add_parser(
@@ -137,7 +137,7 @@ def main(argv):
         help='Perform deep inspection of values and additional validations addresses and data.')
     tables_subparser.add_argument(
         '-n', '--nonzero', action='store_true',
-        help='Include possible non-zero entries beyond allocated in header (Enumerates all entries up to cluster boundary).')
+        help='Include possible non-zero entries not marked as allocated (Enumerates all entries up to virtual size boundary).')
     tables_subparser.set_defaults(func=get_tables)
 
     # Data command subparser
@@ -188,13 +188,13 @@ def main(argv):
 
     # Check command subparser
     check_subparser = subparsers.add_parser(
-        'check', help='Output header of disk image file.')
+        'check', help='Perform consistency checks on disk image.')
     check_subparser.add_argument(
         '-d', '--detailed', action='store_true',
         help='Perform deep inspection of values and additional validations addresses and data.')
     check_subparser.add_argument(
         '-a', '--all', action='store_true',
-        help='Perform all consistency checks on disk image file.')
+        help='Perform all consistency checks on disk image.')
     check_subparser.add_argument(
         '-D', '--dereferenced', action='store_true',
         help='Check for dereferenced clusters.')

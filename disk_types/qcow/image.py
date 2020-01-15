@@ -681,7 +681,7 @@ class Image:
                 'int'],
             'mtime': [
                 20, 4,
-                'Ignored',
+                'Not Used',
                 'int'],
             'size': [
                 24, 8,
@@ -701,7 +701,7 @@ class Image:
                 'int'],
             'UNKNOWN': [
                 38, 2,
-                'UNKNOWN',
+                'Inconsistency in documentation',
                 'int'], 
             'l1_table_offset': [
                 40, 8,
@@ -911,23 +911,35 @@ class Image:
                 else:
                     comment = Fore.RED + \
                         "INCONSISTENT WITH BYTES 16-19"
-            elif attr == 'cluster_bits' and value >= 9:
+            elif attr == 'mtime':
+                comment = Fore.LIGHTBLACK_EX + 'IGNORED'
+            elif attr == 'l2_bits' and value >= 9 and value <= 62:
                 comment = valid
-            elif attr == 'size' and value > 0:
-                if value % self.attr['cluster_size'] == 0:
-                    comment = valid
+            elif attr == 'cluster_bits':
+                if self.attr['version'] == 1:
+                    if value >= 9 and value <= 62:
+                        comment = valid
                 else:
-                    comment = Fore.RED + "INCONSISTENT"
+                    if value >= 9:
+                        comment = valid
+            elif attr == 'size' and value > 0:
+                comment = valid
             elif attr == 'crypt_method' and value < 3 and value >= 0:  # TODO: Add additional checks
                 comment = valid
             elif attr == 'l1_entries' and value >= 0:
                 comment = valid
             elif attr == 'l1_table_offset':
                 v = int(value[2:], 16)
-                if v > 0 and v % self.attr['cluster_size'] == 0:
-                    comment = valid
+                if self.attr['version'] == 1:
+                    if v > 47:
+                        comment = valid
+                    else:
+                        comment = Fore.RED + "MISALIGNED"
                 else:
-                    comment = Fore.RED + "MISALIGNED"
+                    if v > 0 and v % self.attr['cluster_size'] == 0:
+                        comment = valid
+                    else:
+                        comment = Fore.RED + "MISALIGNED"
             elif attr == 'refcount_table_offset':
                 v = int(value[2:], 16)
                 if v > 0 and v % self.attr['cluster_size'] == 0:
@@ -986,7 +998,7 @@ class Image:
                     comment = invalid
             elif attr == 'header_length':
                 if self.attr['version'] == 1:
-                        comment = Fore.GREEN + 'VERSION 2+ ONLY'
+                        comment = Fore.RED + 'INCONSISTENT'
                 elif self.attr['version'] >= 3:
                     if value == 104:
                         comment = Fore.GREEN + "REGULAR HEADER"
@@ -1000,8 +1012,10 @@ class Image:
                 else:
                     if int(value, 2) == 0:
                         comment = Fore.GREEN + 'UNSET'
+            elif attr == 'UNKNOWN':
+                comment = Fore.LIGHTBLACK_EX + 'UNKNOWN'
             else:
-                comment = Fore.BLUE + 'UNKNOWN'
+                comment = Fore.RED + 'INCONSISTENT'
                 #comment = invalid
             return comment
 
@@ -1539,7 +1553,7 @@ class Image:
         #        self.xml_l1_table(args)
         #        self.xml_l2_tables(args)
 
-    def get_header(self, args):
+    def get_metadata(self, args):
         if args.format == 'plain':
             self.plain_header(args)
         elif args.format == 'json':
