@@ -1433,8 +1433,6 @@ class Image:
 
     def plain_map(self, args):
         formats.plain_helpers.title('Disk Image Map')
-        if args.detailed:
-            print('Processing Data Blocks...')
         table_labels = ['Start Address', 'Size', 'Description']
         table_data = []
         # Format as hex format(i, '#016x')
@@ -1497,14 +1495,16 @@ class Image:
             # Add Data
             color = Fore.BLUE
             for l1_index, l1_table_entry in enumerate(self.get_l1_table()):
-                for l2_index, l2_entry in enumerate(self.get_l2_table(l1_table_entry)):
-                    data_offset = self.parse_l2_entry(
-                        l2_entry)['descriptor']['host_cluster_offset']
-                    if data_offset:
-                        item_address = format(
-                            data_offset, '#016x') + ' (' + str(data_offset) + ')'
-                        table_data.append([item_address, color + str(self.cluster_size),
-                                           color + 'Data Block ' + str(l1_index) + '-' + str(l2_index)])
+                if l1_table_entry != 0:
+                    for l2_index, l2_entry in enumerate(self.get_l2_table(l1_table_entry)):
+                        data_offset = self.parse_l2_entry(
+                            l2_entry)['descriptor']['host_cluster_offset']
+                        if data_offset:
+                            item_address = format(
+                                data_offset, '#016x') + ' (' + str(data_offset) + ')'
+                            table_data.append([item_address, color + str(self.cluster_size),
+                                               color + 'Data Block ' + str(l1_index) + '-' + str(l2_index)])
+            print()
         # Sort data by offset
         #table_data.sort()
         table_data.sort(key = lambda x: x[0])

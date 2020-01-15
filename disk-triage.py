@@ -5,10 +5,13 @@ import math
 import os
 import sys
 from collections import OrderedDict
-
+from signal import signal, SIGPIPE, SIG_DFL
 from colorama import Back, Fore, Style
 
 from disk_types import *
+
+# Ignore broken pipe
+signal(SIGPIPE, SIG_DFL)
 
 # Output functions
 VERSION = "0.0.9"
