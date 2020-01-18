@@ -1451,8 +1451,9 @@ class Image:
         table_data = []
         # Format as hex format(i, '#016x')
         # Add Header
+        color = Fore.RED
         table_data.append(
-            [format(0, '#016x') + ' (0)', self.header.attr['header_length'], 'Header'])
+            [format(0, '#016x') + ' (0)', color + str(self.header.attr['header_length']), color + 'Header'])
 
         if self.version > 1:
             if int(self.header.attr['snapshots_offset'], 16) != 0:
@@ -1464,37 +1465,19 @@ class Image:
                                 str(self.cluster_size), color + 'Snapshot Table'])
 
                 # Add Snapshot Entries
-                color = Fore.LIGHTRED_EX
+                color = Fore.LIGHTYELLOW_EX
                 for entry in self.get_snapshot_table():
                     item_address = format(entry['l1_table_offset'], '#016x') + ' (' + str(
                         entry['l1_table_offset']) + ')'
                     table_data.append([item_address, color +
                                     str(self.l1_table_size), color + 'Snapshot L1 Table'])
 
-        # Add L1 Table
-        color = Fore.MAGENTA
-        item_address = format(int(self.header.attr['l1_table_offset'], 16), '#016x') + ' (' + str(int(
-            self.header.attr['l1_table_offset'], 16)) + ')'
-        table_data.append([item_address, color +
-                           str(self.cluster_size), color + 'L1 Table'])
-
-        # Add L2 Tables
-        color = Fore.LIGHTMAGENTA_EX
-        for l1_index, l1_table_entry in enumerate(self.get_l1_table()):
-            l2_offset = l1_table_entry & self.QCOW_L2_OFFSET_MASK
-            if l2_offset:
-                item_address = format(l2_offset, '#016x') + \
-                    ' (' + str(l2_offset) + ')'
-                table_data.append(
-                    [item_address, color + str(self.l2_table_size), color + 'L2 Table #' + str(l1_index)])
-
-        if self.version > 1:
             # Add RefCount Table
             color = Fore.CYAN
             item_address = format(int(self.header.attr['refcount_table_offset'], 16), '#016x') + ' (' + str(int(
                 self.header.attr['refcount_table_offset'], 16)) + ')'
             table_data.append([item_address, color +
-                            str(self.cluster_size), color + 'RefCount Table'])
+                               str(self.cluster_size), color + 'RefCount Table'])
 
             # Add RefCount Blocks
             color = Fore.LIGHTCYAN_EX
@@ -1505,9 +1488,26 @@ class Image:
                     table_data.append(
                         [item_address, color + str(self.cluster_size), color + 'RefCount Block #' + str(refcount_index)])
 
+        # Add L1 Table
+        color = Fore.YELLOW
+        item_address = format(int(self.header.attr['l1_table_offset'], 16), '#016x') + ' (' + str(int(
+            self.header.attr['l1_table_offset'], 16)) + ')'
+        table_data.append([item_address, color +
+                           str(self.cluster_size), color + 'L1 Table'])
+
+        # Add L2 Tables
+        color = Fore.GREEN
+        for l1_index, l1_table_entry in enumerate(self.get_l1_table()):
+            l2_offset = l1_table_entry & self.QCOW_L2_OFFSET_MASK
+            if l2_offset:
+                item_address = format(l2_offset, '#016x') + \
+                    ' (' + str(l2_offset) + ')'
+                table_data.append(
+                    [item_address, color + str(self.l2_table_size), color + 'L2 Table #' + str(l1_index)])
+
         if args.detailed:
             # Add Data
-            color = Fore.BLUE
+            color = Fore.LIGHTMAGENTA_EX
             for l1_index, l1_table_entry in enumerate(self.get_l1_table()):
                 if l1_table_entry != 0:
                     for l2_index, l2_entry in enumerate(self.get_l2_table(l1_table_entry)):
